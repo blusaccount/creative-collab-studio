@@ -1,0 +1,34 @@
+import type { Ticket } from '../types';
+
+export const mockTickets: Ticket[] = [
+  {
+    id: 'ticket-001',
+    title: 'GameCube room poster',
+    type: 'texture',
+    console: 'GameCube',
+    status: 'pending',
+    dimensions: { width: 512, height: 512 },
+    description:
+      'Hand-drawn poster for a retro room wall. Slightly surreal, nostalgic, early 2000s magazine art influence. Warm colors, slightly warped edges, soft paper texture.',
+  },
+  {
+    id: 'ticket-002',
+    title: 'Controller body texture',
+    type: 'prop',
+    console: 'GameCube',
+    status: 'in-review',
+    dimensions: { width: 1024, height: 1024 },
+    description:
+      'Paint a gamepad body with subtle wear, soft plastic shading, and nostalgic button detail. Keep it hand-painted and not too clean.',
+  },
+  {
+    id: 'ticket-003',
+    title: 'CRT glow overlay',
+    type: 'effect',
+    console: 'Wii',
+    status: 'ready',
+    dimensions: { width: 1280, height: 720 },
+    description:
+      'Design a slightly surreal CRT glow overlay for the booting TV screen. Use soft blues and warm whites with gentle scanline noise.',
+  },
+];
