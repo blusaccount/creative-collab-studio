@@ -1,5 +1,4 @@
 {
-  "files": ["src"],
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,

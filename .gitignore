@@ -2,3 +2,8 @@ node_modules
 dist
 .vite
 .DS_Store
+
+# TypeScript build artifacts
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

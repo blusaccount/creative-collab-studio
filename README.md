@@ -75,12 +75,27 @@ The goal is to support a workflow where:
 
 ## Repository structure
 
-This repo is intentionally a product starter — a working front-end prototype for the creative workspace itself.
+The app is a fully client-side workspace with no backend. Projects and tickets are persisted in IndexedDB.
 
-- `src/App.tsx` — main workspace layout
-- `src/types.ts` — domain types for tickets and metadata
-- `src/data/mockTickets.ts` — example AI requests
-- `src/styles.css` — UI styling for creative workspace
+- `src/App.tsx` — app shell, routing between workspace and asset library
+- `src/types.ts` — domain types (projects, tickets, layers, notes, settings)
+- `src/state/useStudio.ts` — studio state + persistence orchestration
+- `src/storage/` — IndexedDB wrapper and repository (bootstrap, load, save)
+- `src/drawing/DrawingEngine.ts` — layered canvas engine (tools, history, render, export)
+- `src/drawing/compose.ts` — offscreen compositing for library thumbnails and batch export
+- `src/components/` — queue, editor, toolbar, layers, notes, dialogs, asset library
+- `src/data/seed.ts` — first-run example project and tickets
+- `src/styles.css` — dark/light theming and layout
+
+## Capabilities
+
+- Persistent projects and tickets (IndexedDB), auto-saved canvas state
+- Real drawing engine: hard / soft / textured brushes, eraser, bucket fill, eyedropper, opacity
+- Multi-layer workflow with visibility, opacity, locking, reorder + reference layers
+- Zoom / pan, pixel grid overlay, reference images via upload or paste
+- Non-destructive history (undo/redo), clear with confirmation, revert to last saved
+- Ticket workflow: statuses, notes/review comments, filters, sorting, drag-and-drop reorder
+- Asset export: transparent PNG, versioned file naming, batch export to an organized folder tree (File System Access API with download fallback)
 
 ## Development
 
