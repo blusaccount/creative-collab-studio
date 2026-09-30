@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { BACKGROUND_LABEL, TICKET_TYPES } from '../types';
+import { BACKGROUND_KINDS, TICKET_TYPES } from '../types';
 import type { BackgroundKind, TicketStatus, TicketType } from '../types';
 import type { NewTicketInput } from '../state/useStudio';
+import { t } from '../i18n';
 import { Modal } from './Modal';
 
 interface NewTicketDialogProps {
@@ -10,15 +11,9 @@ interface NewTicketDialogProps {
   onSubmit: (input: NewTicketInput) => void;
 }
 
-const SIZE_PRESETS = [
-  { label: '32', width: 32, height: 32 },
-  { label: '64', width: 64, height: 64 },
-  { label: '128', width: 128, height: 128 },
-  { label: '256', width: 256, height: 256 },
-  { label: '512', width: 512, height: 512 },
-  { label: '1024', width: 1024, height: 1024 },
-  { label: '2048', width: 2048, height: 2048 },
-];
+const SIZE_PRESETS = [32, 64, 128, 256, 512, 1024, 2048];
+
+const STATUS_CHOICES: TicketStatus[] = ['backlog', 'in-progress', 'review-ready', 'complete'];
 
 export function NewTicketDialog({ defaultDimensions, onClose, onSubmit }: NewTicketDialogProps) {
   const [title, setTitle] = useState('');
@@ -45,66 +40,67 @@ export function NewTicketDialog({ defaultDimensions, onClose, onSubmit }: NewTic
 
   return (
     <Modal
-      title="New ticket"
+      title={t('newTicket.title')}
       onClose={onClose}
       width={560}
       footer={
         <>
           <button className="ghost-button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-button" onClick={submit} disabled={!title.trim()}>
-            Create ticket
+            {t('newTicket.create')}
           </button>
         </>
       }
     >
       <div className="form-grid">
         <label className="field">
-          <span>Title</span>
+          <span>{t('newTicket.name')}</span>
           <input
             autoFocus
             value={title}
-            placeholder="e.g. Wooden crate texture"
+            placeholder={t('newTicket.namePlaceholder')}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
 
         <label className="field">
-          <span>Brief / description</span>
+          <span>{t('newTicket.brief')}</span>
           <textarea
             rows={3}
             value={description}
-            placeholder="What should this asset be? Style notes, palette, constraints..."
+            placeholder={t('newTicket.briefPlaceholder')}
             onChange={(event) => setDescription(event.target.value)}
           />
         </label>
 
         <div className="field-row">
           <label className="field">
-            <span>Type</span>
+            <span>{t('field.type')}</span>
             <select value={type} onChange={(event) => setType(event.target.value as TicketType)}>
               {TICKET_TYPES.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {t(`type.${option}` as const)}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            <span>Status</span>
+            <span>{t('field.status')}</span>
             <select value={status} onChange={(event) => setStatus(event.target.value as TicketStatus)}>
-              <option value="backlog">Backlog</option>
-              <option value="in-progress">In progress</option>
-              <option value="review-ready">Review ready</option>
-              <option value="complete">Complete</option>
+              {STATUS_CHOICES.map((option) => (
+                <option key={option} value={option}>
+                  {t(`status.${option}` as const)}
+                </option>
+              ))}
             </select>
           </label>
         </div>
 
         <div className="field-row">
           <label className="field">
-            <span>Width (px)</span>
+            <span>{t('field.width')}</span>
             <input
               type="number"
               min={1}
@@ -114,7 +110,7 @@ export function NewTicketDialog({ defaultDimensions, onClose, onSubmit }: NewTic
             />
           </label>
           <label className="field">
-            <span>Height (px)</span>
+            <span>{t('field.height')}</span>
             <input
               type="number"
               min={1}
@@ -124,14 +120,14 @@ export function NewTicketDialog({ defaultDimensions, onClose, onSubmit }: NewTic
             />
           </label>
           <label className="field">
-            <span>Canvas background</span>
+            <span>{t('field.background')}</span>
             <select
               value={background}
               onChange={(event) => setBackground(event.target.value as BackgroundKind)}
             >
-              {(Object.keys(BACKGROUND_LABEL) as BackgroundKind[]).map((option) => (
+              {BACKGROUND_KINDS.map((option) => (
                 <option key={option} value={option}>
-                  {BACKGROUND_LABEL[option]}
+                  {t(`background.${option}` as const)}
                 </option>
               ))}
             </select>
@@ -139,19 +135,19 @@ export function NewTicketDialog({ defaultDimensions, onClose, onSubmit }: NewTic
         </div>
 
         <div className="field">
-          <span>Quick sizes</span>
+          <span>{t('newTicket.quickSizes')}</span>
           <div className="chip-row">
-            {SIZE_PRESETS.map((preset) => (
+            {SIZE_PRESETS.map((size) => (
               <button
-                key={preset.label}
+                key={size}
                 type="button"
-                className={`chip ${width === preset.width && height === preset.height ? 'active' : ''}`}
+                className={`chip ${width === size && height === size ? 'active' : ''}`}
                 onClick={() => {
-                  setWidth(preset.width);
-                  setHeight(preset.height);
+                  setWidth(size);
+                  setHeight(size);
                 }}
               >
-                {preset.label}
+                {size}
               </button>
             ))}
           </div>

@@ -1,5 +1,6 @@
 import type { Ticket } from '../types';
 import { getPaperPattern, BACKGROUND_COLORS } from './patterns';
+import { trimCanvas } from './trim';
 
 function loadImage(dataUrl: string): Promise<HTMLImageElement | null> {
   if (!dataUrl) return Promise.resolve(null);
@@ -49,19 +50,30 @@ export async function composeTicketCanvas(ticket: Ticket): Promise<HTMLCanvasEle
 }
 
 export async function composeTicketThumbnail(ticket: Ticket, maxSize = 220): Promise<string> {
-  const full = await composeTicketCanvas(ticket);
-  const scale = Math.min(1, maxSize / Math.max(full.width, full.height));
+  const { width, height } = ticket.dimensions;
+  const scale = Math.min(1, maxSize / Math.max(width, height));
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(full.width * scale));
-  canvas.height = Math.max(1, Math.round(full.height * scale));
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(full, 0, 0, canvas.width, canvas.height);
+  paintBackground(ctx, ticket.background, targetWidth, targetHeight);
+  for (const layer of ticket.layers) {
+    if (!layer.visible || layer.kind !== 'draw' || !layer.dataUrl) continue;
+    const image = await loadImage(layer.dataUrl);
+    if (!image) continue;
+    ctx.globalAlpha = layer.opacity;
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+  }
+  ctx.globalAlpha = 1;
   return canvas.toDataURL('image/png');
 }
 
-export async function composeTicketBlob(ticket: Ticket): Promise<Blob | null> {
+export async function composeTicketBlob(ticket: Ticket, trim = false): Promise<Blob | null> {
   const canvas = await composeTicketCanvas(ticket);
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
+  const output = trim ? trimCanvas(canvas) : canvas;
+  return new Promise((resolve) => output.toBlob((blob) => resolve(blob), 'image/png'));
 }

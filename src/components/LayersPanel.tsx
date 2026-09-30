@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react';
 import type { DrawingEngine } from '../drawing/DrawingEngine';
+import { t } from '../i18n';
 import { Icon } from './Icon';
 
 interface LayersPanelProps {
@@ -36,10 +37,10 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
     <section className="side-section layers-section">
       <div className="side-section-head">
         <h3>
-          <Icon name="layers" size={14} /> Layers
+          <Icon name="layers" size={14} /> {t('layers.title')}
         </h3>
         <div className="side-section-actions">
-          <button className="icon-button" title="Add paint layer" onClick={() => { engine.addLayer('draw'); onChanged(); }}>
+          <button className="icon-button" title={t('layers.addPaint')} aria-label={t('layers.addPaint')} onClick={() => { engine.addLayer('draw'); onChanged(); }}>
             <Icon name="plus" size={14} />
           </button>
         </div>
@@ -56,20 +57,28 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
             >
               <button
                 className="icon-button tight"
-                title={layer.visible ? 'Hide layer' : 'Show layer'}
+                title={layer.visible ? t('layers.hide') : t('layers.show')}
+                aria-label={layer.visible ? t('layers.hide') : t('layers.show')}
                 onClick={(event) => {
                   event.stopPropagation();
+                  engine.beginLayerEdit();
                   engine.setLayerProps(layer.id, { visible: !layer.visible });
+                  engine.endLayerEdit();
+                  onChanged();
                 }}
               >
                 <Icon name={layer.visible ? 'eye' : 'eye-off'} size={14} />
               </button>
               <button
                 className="icon-button tight"
-                title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+                title={layer.locked ? t('layers.unlock') : t('layers.lock')}
+                aria-label={layer.locked ? t('layers.unlock') : t('layers.lock')}
                 onClick={(event) => {
                   event.stopPropagation();
+                  engine.beginLayerEdit();
                   engine.setLayerProps(layer.id, { locked: !layer.locked });
+                  engine.endLayerEdit();
+                  onChanged();
                 }}
               >
                 <Icon name={layer.locked ? 'lock' : 'unlock'} size={14} />
@@ -80,21 +89,34 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
                   className="layer-name"
                   value={layer.name}
                   onClick={(event) => event.stopPropagation()}
+                  onFocus={() => engine.beginLayerEdit()}
                   onChange={(event) => engine.setLayerProps(layer.id, { name: event.target.value })}
+                  onBlur={() => {
+                    engine.endLayerEdit();
+                    onChanged();
+                  }}
                 />
                 <div className="layer-sub">
-                  <span className={`layer-kind ${layer.kind}`}>{layer.kind}</span>
+                  <span className={`layer-kind ${layer.kind}`}>
+                    {t(`layers.kind.${layer.kind}` as const)}
+                  </span>
                   <input
                     className="layer-opacity"
                     type="range"
                     min={0}
                     max={100}
                     value={Math.round(layer.opacity * 100)}
-                    title={`Opacity ${Math.round(layer.opacity * 100)}%`}
+                    title={t('layers.opacity', { n: Math.round(layer.opacity * 100) })}
                     onClick={(event) => event.stopPropagation()}
-                    onChange={(event) =>
-                      engine.setLayerProps(layer.id, { opacity: Number(event.target.value) / 100 })
-                    }
+                    onPointerDown={() => engine.beginLayerEdit()}
+                    onPointerUp={() => {
+                      engine.endLayerEdit();
+                      onChanged();
+                    }}
+                    onChange={(event) => {
+                      engine.setLayerProps(layer.id, { opacity: Number(event.target.value) / 100 });
+                      onChanged();
+                    }}
                   />
                 </div>
               </div>
@@ -103,7 +125,8 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
                 {layer.kind === 'reference' ? (
                   <button
                     className="icon-button tight"
-                    title="Load reference image"
+                    title={t('layers.loadReference')}
+                    aria-label={t('layers.loadReference')}
                     onClick={(event) => {
                       event.stopPropagation();
                       loadReference(layer.id);
@@ -114,29 +137,34 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
                 ) : null}
                 <button
                   className="icon-button tight"
-                  title="Move up"
+                  title={t('layers.moveUp')}
+                  aria-label={t('layers.moveUp')}
                   disabled={index === layers.length - 1}
                   onClick={(event) => {
                     event.stopPropagation();
                     engine.moveLayer(layer.id, 1);
+                    onChanged();
                   }}
                 >
                   <Icon name="up" size={13} />
                 </button>
                 <button
                   className="icon-button tight"
-                  title="Move down"
+                  title={t('layers.moveDown')}
+                  aria-label={t('layers.moveDown')}
                   disabled={index === 0}
                   onClick={(event) => {
                     event.stopPropagation();
                     engine.moveLayer(layer.id, -1);
+                    onChanged();
                   }}
                 >
                   <Icon name="down" size={13} />
                 </button>
                 <button
                   className="icon-button tight danger-text"
-                  title="Delete layer"
+                  title={t('layers.delete')}
+                  aria-label={t('layers.delete')}
                   disabled={layers.length <= 1}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -154,7 +182,7 @@ export function LayersPanel({ engine, onChanged }: LayersPanelProps) {
 
       <div className="layer-footer">
         <button className="ghost-button small" onClick={() => { engine.addLayer('reference'); onChanged(); }}>
-          <Icon name="image" size={14} /> Add reference layer
+          <Icon name="image" size={14} /> {t('layers.addReference')}
         </button>
       </div>
 

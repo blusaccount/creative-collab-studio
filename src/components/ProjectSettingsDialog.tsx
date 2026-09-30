@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Project } from '../types';
+import { t } from '../i18n';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 
@@ -29,45 +30,45 @@ export function ProjectSettingsDialog({ project, onClose, onSave, onDelete }: Pr
 
   return (
     <Modal
-      title="Project settings"
+      title={t('projectSettings.title')}
       onClose={onClose}
       width={520}
       footer={
         <>
           <div className="footer-left">
             <button className="ghost-button danger-text" onClick={onDelete}>
-              <Icon name="trash" /> Delete project
+              <Icon name="trash" /> {t('projectSettings.deleteProject')}
             </button>
           </div>
           <button className="ghost-button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-button" onClick={save}>
-            Save
+            {t('common.save')}
           </button>
         </>
       }
     >
       <div className="form-grid">
         <label className="field">
-          <span>Project name</span>
+          <span>{t('newProject.name')}</span>
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <label className="field">
-          <span>Asset output folder name</span>
+          <span>{t('projectSettings.outputFolder')}</span>
           <input
             value={assetOutputFolder}
             onChange={(event) => setAssetOutputFolder(event.target.value)}
           />
-          <small>Used as the root folder when batch-exporting assets to disk.</small>
+          <small>{t('projectSettings.outputFolderHelp')}</small>
         </label>
         <div className="field-row">
           <label className="field">
-            <span>Default width (px)</span>
+            <span>{t('field.defaultWidth')}</span>
             <input type="number" value={width} onChange={(event) => setWidth(Number(event.target.value))} />
           </label>
           <label className="field">
-            <span>Default height (px)</span>
+            <span>{t('field.defaultHeight')}</span>
             <input
               type="number"
               value={height}
