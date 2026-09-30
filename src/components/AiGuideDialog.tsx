@@ -25,7 +25,8 @@ const CONTENT: Record<'de' | 'en', { intro: string; sections: Section[] }> = {
           'Szene in ihre Bestandteile zerlegen (Boden, Wände, Requisiten, Effekte, UI …).',
           'Für jedes benötigte Asset ein Ticket im Blueprint definieren.',
           'Den Blueprint in der Szene-Ansicht über „Importieren" laden — daraus entstehen automatisch alle Tickets.',
-          'Der Künstler malt die Tickets und setzt sie auf „Fertig".',
+          'Der Künstler malt die Tickets in der App und setzt sie auf „Fertig".',
+          'Alternativ: eine PSD-/PNG-Vorlage herunterladen, in Photoshop & Co. malen und das fertige Bild hochladen — das Ticket wird dann automatisch als fertig markiert.',
           'Fertige Assets als PNG exportieren (transparent, versioniert) — in der Assets-Ansicht auch gesammelt in einen Ordner.',
         ],
       },
@@ -65,7 +66,7 @@ const CONTENT: Record<'de' | 'en', { intro: string; sections: Section[] }> = {
       {
         heading: 'Importieren',
         body:
-          'Szene-Ansicht öffnen → „Importieren" (Blueprint-JSON) oder „Demo laden". Über „Plan exportieren" lässt sich ein bestehender Plan wieder als JSON ausgeben.',
+          'Am einfachsten über „Von KI einfügen" (Bot-Symbol oben rechts oder in der Gruppen-Spalte): Prompt kopieren, der KI geben, JSON einfügen. Alternativ eine Blueprint-Datei über „Importieren" laden. „Plan exportieren" gibt einen bestehenden Plan als JSON aus.',
       },
     ],
   },
@@ -84,7 +85,8 @@ const CONTENT: Record<'de' | 'en', { intro: string; sections: Section[] }> = {
           'Break the scene into its parts (floor, walls, props, effects, UI …).',
           'Define one ticket per required asset in the blueprint.',
           'Import the blueprint in the Scene view via “Import” — all tickets are created automatically.',
-          'The artist paints the tickets and sets them to “Complete”.',
+          'The artist paints the tickets in the app and sets them to “Complete”.',
+          'Alternatively: download a PSD/PNG template, paint in Photoshop & co., then upload the finished file — the ticket is marked complete automatically.',
           'Export finished assets as PNG (transparent, versioned) — the Assets view can export them into a folder.',
         ],
       },
@@ -124,7 +126,7 @@ const CONTENT: Record<'de' | 'en', { intro: string; sections: Section[] }> = {
       {
         heading: 'Importing',
         body:
-          'Open the Scene view → “Import” (blueprint JSON) or “Load demo”. “Export plan” writes an existing plan back out as JSON.',
+          'Easiest via “Paste from AI” (bot icon top right or in the Groups column): copy the prompt, give it to your AI, paste the JSON. Alternatively load a blueprint file via “Import”. “Export plan” writes an existing plan back out as JSON.',
       },
     ],
   },

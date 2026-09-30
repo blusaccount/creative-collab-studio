@@ -69,7 +69,9 @@ export function CanvasStage({
   };
 
   useEffect(() => {
-    const draw = () => engine.render(canvasRef.current!, viewRef.current);
+    const draw = () => {
+      if (canvasRef.current) engine.render(canvasRef.current, viewRef.current);
+    };
     draw();
     const unsubscribe = engine.subscribe(draw);
     const wrapper = wrapperRef.current;
@@ -82,7 +84,7 @@ export function CanvasStage({
   }, [engine]);
 
   useEffect(() => {
-    engine.render(canvasRef.current!, view);
+    if (canvasRef.current) engine.render(canvasRef.current, view);
   }, [engine, view]);
 
   useEffect(() => {

@@ -9,6 +9,7 @@ type SortKey = 'manual' | 'updated' | 'created' | 'title' | 'status';
 interface TicketQueueProps {
   tickets: Ticket[];
   scenes: Scene[];
+  groupFilter: string | 'all';
   activeTicketId: string | null;
   onSelect: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -40,6 +41,7 @@ function relativeTime(timestamp: number): string {
 export function TicketQueue({
   tickets,
   scenes,
+  groupFilter,
   activeTicketId,
   onSelect,
   onReorder,
@@ -50,7 +52,6 @@ export function TicketQueue({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | TicketStatus>('active');
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all');
-  const [sceneFilter, setSceneFilter] = useState<'all' | string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('manual');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -61,6 +62,11 @@ export function TicketQueue({
     const id = window.setInterval(() => setTick((value) => value + 1), 60000);
     return () => window.clearInterval(id);
   }, []);
+
+  // When a specific group is selected, show all its tickets (don't hide complete ones).
+  useEffect(() => {
+    if (groupFilter !== 'all') setStatusFilter('all');
+  }, [groupFilter]);
 
   const sceneNames = useMemo(
     () => new Map(scenes.map((scene) => [scene.id, scene.name])),
@@ -77,8 +83,8 @@ export function TicketQueue({
     if (typeFilter !== 'all') {
       list = list.filter((ticket) => ticket.type === typeFilter);
     }
-    if (sceneFilter !== 'all') {
-      list = list.filter((ticket) => ticket.sceneId === sceneFilter);
+    if (groupFilter !== 'all') {
+      list = list.filter((ticket) => ticket.sceneId === groupFilter);
     }
     const query = search.trim().toLowerCase();
     if (query) {
@@ -99,7 +105,7 @@ export function TicketQueue({
       list.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.order - b.order);
     }
     return list;
-  }, [tickets, statusFilter, typeFilter, sceneFilter, search, sortKey]);
+  }, [tickets, statusFilter, typeFilter, groupFilter, search, sortKey]);
 
   const handleDrop = (targetId: string) => {
     if (!dragId || dragId === targetId) return;
@@ -162,16 +168,6 @@ export function TicketQueue({
             <option value="title">{t('queue.sort.title')}</option>
             <option value="status">{t('queue.sort.status')}</option>
           </select>
-          {scenes.length > 0 ? (
-            <select value={sceneFilter} onChange={(event) => setSceneFilter(event.target.value)}>
-              <option value="all">{t('queue.filter.allScenes')}</option>
-              {scenes.map((scene) => (
-                <option key={scene.id} value={scene.id}>
-                  {scene.name}
-                </option>
-              ))}
-            </select>
-          ) : null}
         </div>
       </div>
 

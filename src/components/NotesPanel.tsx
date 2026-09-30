@@ -6,9 +6,10 @@ import { Icon } from './Icon';
 interface NotesPanelProps {
   ticket: Ticket;
   onAddNote: (body: string) => void;
+  onDeleteNote: (noteId: string) => void;
 }
 
-export function NotesPanel({ ticket, onAddNote }: NotesPanelProps) {
+export function NotesPanel({ ticket, onAddNote, onDeleteNote }: NotesPanelProps) {
   const [draft, setDraft] = useState('');
 
   const submit = () => {
@@ -34,7 +35,17 @@ export function NotesPanel({ ticket, onAddNote }: NotesPanelProps) {
             <div key={note.id} className="note-item">
               <div className="note-head">
                 <strong>{note.author}</strong>
-                <span>{new Date(note.createdAt).toLocaleString(getLocale())}</span>
+                <span className="note-head-right">
+                  {new Date(note.createdAt).toLocaleString(getLocale())}
+                  <button
+                    className="icon-button tight danger-text"
+                    title={t('notes.delete')}
+                    aria-label={t('notes.delete')}
+                    onClick={() => onDeleteNote(note.id)}
+                  >
+                    <Icon name="trash" size={12} />
+                  </button>
+                </span>
               </div>
               <p>{note.body}</p>
             </div>

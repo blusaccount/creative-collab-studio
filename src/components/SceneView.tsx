@@ -15,6 +15,7 @@ interface SceneViewProps {
   tickets: Ticket[];
   settings: StudioSettings;
   onSelectScene: (id: string) => void;
+  onSelectGroup?: (id: string) => void;
   onImportBlueprint: (blueprint: SceneBlueprint) => void;
   onLoadDemo: () => void;
   onDeleteScene: (id: string) => void;
@@ -74,6 +75,7 @@ export function SceneView({
   activeScene,
   tickets,
   onSelectScene,
+  onSelectGroup,
   onImportBlueprint,
   onLoadDemo,
   onDeleteScene,
@@ -171,7 +173,8 @@ export function SceneView({
         const blueprint = validateBlueprint(parsed);
         if (!blueprint) throw new Error(t('toast.invalidBlueprint'));
         onImportBlueprint(blueprint);
-        notify(t('toast.blueprintImported', { name: blueprint.name, count: blueprint.assets.length }), 'success');
+        const count = (blueprint.assets?.length ?? 0) + (blueprint.maps?.length ?? 0);
+        notify(t('toast.blueprintImported', { name: blueprint.name, count }), 'success');
       } catch (error) {
         notify(error instanceof Error ? error.message : t('toast.importFailed'), 'error');
       }
@@ -228,7 +231,10 @@ export function SceneView({
         </div>
         <div className="scene-head-actions">
           {scenes.length > 1 ? (
-            <select value={activeScene.id} onChange={(event) => onSelectScene(event.target.value)}>
+            <select
+              value={activeScene.id}
+              onChange={(event) => (onSelectGroup ?? onSelectScene)(event.target.value)}
+            >
               {scenes.map((scene) => (
                 <option key={scene.id} value={scene.id}>
                   {scene.name}

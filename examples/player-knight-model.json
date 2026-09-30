@@ -1,0 +1,17 @@
+{
+  "kind": "model",
+  "name": "Player – Ritter",
+  "description": "Beispiel-Case: Der Held des Spiels als 3D-Modell. Ein Mesh, ein Material — braucht ein komplettes PBR-Texturset, das sich Auflösung und UV teilt.",
+  "artDirection": "Stilisiert-realistisch, handgemalt über PBR. Getragenes Leder, polierte Metallplatten mit Kratzern, warmes Umgebungslicht.",
+  "target": "unreal",
+  "canvas": { "width": 2048, "height": 2048, "background": "#0b0d12" },
+  "uvTemplate": "<optional: URL oder base64 eines UV-Wireframe-PNG (1024x1024)>",
+  "maps": [
+    { "map": "basecolor", "brief": "Basis-Farben: bräunliches Leder, stahlgraues Metall, dunkelblauer Umhang. Kanten leicht aufgehellt." },
+    { "map": "normal", "brief": "Nähte, Nieten, Plattenkanten und Lederfalten als Relief." },
+    { "map": "roughness", "brief": "Leder matt (0.7–0.85), Metall mittel (0.3), verschmutzte Bereiche stumpfer." },
+    { "map": "metallic", "brief": "Metall 1, Leder/Stoff 0. Nur harte Flächen." },
+    { "map": "ao", "brief": "Nähte, Achseln, Riemen und Panzerkanten sanft abdunkeln." },
+    { "map": "emissive", "brief": "Glühende Runen am Umhang, kaltes Blau.", "optional": true }
+  ]
+}

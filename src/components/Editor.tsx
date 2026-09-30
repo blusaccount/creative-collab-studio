@@ -12,6 +12,7 @@ import type {
   GuideShape,
   LayerState,
   Project,
+  Scene,
   StudioSettings,
   Ticket,
   TicketStatus,
@@ -20,10 +21,13 @@ import type {
 } from '../types';
 import { DrawingEngine } from '../drawing/DrawingEngine';
 import { t } from '../i18n';
+import { mapColorSpace, mapPurposeKey, mapSortIndex, packingHintKey } from '../scenes/maps';
 import { buildAssetFilename } from '../utils/naming';
 import { downloadBlob } from '../utils/download';
+import { composeTemplatePng, composeTemplatePsd, isPsdFile, readImageToCanvas, readPsdToCanvas } from '../utils/psd';
 import { CanvasStage } from './CanvasStage';
 import { PaintRibbon } from './PaintRibbon';
+import { ModelPreview } from './ModelPreview';
 import { LayersPanel } from './LayersPanel';
 import { NotesPanel } from './NotesPanel';
 import { ConfirmDialog } from './Modal';
@@ -37,6 +41,11 @@ interface EditorProps {
   ticket: Ticket;
   project: Project | null;
   sceneName?: string | null;
+  uvTemplate?: string;
+  modelGroup?: Scene | null;
+  groupTickets?: Ticket[];
+  onAttachModel?: (file: File) => void;
+  onOpenTicket?: (id: string) => void;
   settings: StudioSettings;
   onUpdateTicket: (id: string, patch: Partial<Ticket>, options?: { touch?: boolean }) => Promise<void> | void;
   onAddNote: (ticketId: string, body: string) => void;
@@ -51,6 +60,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     ticket,
     project,
     sceneName,
+    uvTemplate,
+    modelGroup,
+    groupTickets,
+    onAttachModel,
+    onOpenTicket,
     settings: studioSettings,
     onUpdateTicket,
     onAddNote,
@@ -93,13 +107,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     gridSize: 16,
     showReferences: true,
     guide: 'none',
+    showUvOverlay: true,
   });
   const [ready, setReady] = useState(false);
   const [fitNonce, setFitNonce] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const savedTimer = useRef<number | null>(null);
   const baselineRef = useRef<LayerState[] | null>(null);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
+  const appliedUvRef = useRef(false);
 
   const updateTool = useCallback((patch: Partial<ToolSettings>) => {
     setTool((current) => ({ ...current, ...patch }));
@@ -130,10 +149,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   const saveTimer = useRef<number | null>(null);
   const scheduleSave = useCallback(() => {
+    setSaveState('saving');
     if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       persistRef.current();
       saveTimer.current = null;
+      setSaveState('saved');
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSaveState('idle'), 2000);
     }, 400);
   }, []);
 
@@ -150,6 +173,20 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine]);
+
+  // Auto-load a model set's shared UV template as the reference layer.
+  useEffect(() => {
+    if (!ready || appliedUvRef.current || !uvTemplate) return;
+    if (ticket.layers.some((layer) => layer.kind === 'reference' && layer.dataUrl)) return;
+    appliedUvRef.current = true;
+    void engine.applyReferenceTemplate(uvTemplate).then(() => scheduleSave());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, uvTemplate, engine]);
+
+  // Provide the model's UV islands as a non-printing canvas overlay.
+  useEffect(() => {
+    engine.setUvLayout(modelGroup?.uvLayout ?? []);
+  }, [engine, modelGroup?.uvLayout]);
 
   useEffect(() => {
     return () => {
@@ -228,6 +265,49 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     scheduleSave();
     notify(t('editor.toast.reverted'), 'success');
   }, [engine, scheduleSave, notify]);
+
+  const downloadTemplate = useCallback(
+    async (format: 'psd' | 'png') => {
+      try {
+        const blob = format === 'psd' ? await composeTemplatePsd(ticket) : await composeTemplatePng(ticket);
+        if (!blob) throw new Error('empty template');
+        const base = buildAssetFilename(ticket, project, studioSettings).replace(/\.png$/i, '');
+        downloadBlob(blob, `${base}-template.${format}`);
+        notify(t('editor.toast.templateSaved'), 'success');
+      } catch {
+        notify(t('editor.toast.templateFailed'), 'error');
+      }
+    },
+    [ticket, project, studioSettings, notify],
+  );
+
+  const handleUpload = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      try {
+        const canvas = isPsdFile(file) ? await readPsdToCanvas(file) : await readImageToCanvas(file);
+        if (!canvas) throw new Error('unreadable');
+        if (canvas.width !== ticket.dimensions.width || canvas.height !== ticket.dimensions.height) {
+          notify(
+            t('editor.uploadMismatch', {
+              w: canvas.width,
+              h: canvas.height,
+              tw: ticket.dimensions.width,
+              th: ticket.dimensions.height,
+            }),
+            'info',
+          );
+        }
+        await engine.setDrawLayerImage(canvas.toDataURL('image/png'));
+        scheduleSave();
+        changeStatus('complete');
+        notify(t('editor.toast.assetImported'), 'success');
+      } catch {
+        notify(t('editor.toast.importFailed'), 'error');
+      }
+    },
+    [engine, scheduleSave, changeStatus, notify],
+  );
 
   const handlePickColor = useCallback(
     (color: string, secondary: boolean) => {
@@ -330,6 +410,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   }, [engine, scheduleSave, notify]);
 
   const dimensions = engine.getSize();
+  const sortedGroupTickets =
+    groupTickets && groupTickets.length > 0
+      ? [...groupTickets].sort((a, b) => mapSortIndex(a.mapType) - mapSortIndex(b.mapType))
+      : [];
+  const mapIndex = sortedGroupTickets.findIndex((item) => item.id === ticket.id);
   const canUndo = engine.canUndo();
   const canRedo = engine.canRedo();
   const zoomPercent = Math.round(view.zoom * 100);
@@ -340,7 +425,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       : null;
 
   return (
-    <section className="editor-panel">
+    <section className={`editor-panel ${modelGroup ? 'with-preview' : ''}`}>
       <PaintRibbon
         settings={tool}
         onSettingsChange={updateTool}
@@ -430,8 +515,91 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             </div>
           </div>
 
+          {ticket.mapType ? (
+            <section className="side-section map-guidance">
+              <div className="side-section-head">
+                <h3>
+                  <Icon name="layers" size={14} /> {t('editor.mapPanel')}
+                </h3>
+                <span className="map-cs">
+                  {t(mapColorSpace(ticket.mapType) === 'srgb' ? 'colorspace.srgb' : 'colorspace.linear')}
+                </span>
+              </div>
+              <span className="map-chip">{t(`map.${ticket.mapType}` as const)}</span>
+              <p className="side-hint">{t(mapPurposeKey(ticket.mapType))}</p>
+              {modelGroup?.target ? <p className="side-hint packing-hint">{t(packingHintKey(modelGroup.target))}</p> : null}
+            </section>
+          ) : null}
+
+          {modelGroup && sortedGroupTickets.length > 0 ? (
+            <section className="side-section">
+              <div className="side-section-head">
+                <h3>
+                  <Icon name="cube" size={14} /> {t('editor.mapSwitcher')}
+                </h3>
+                <span className="count">
+                  {t('editor.mapOf', { current: mapIndex + 1, total: sortedGroupTickets.length })}
+                </span>
+              </div>
+              <div className="map-switch-list">
+                {sortedGroupTickets.map((mapTicket) => (
+                  <button
+                    key={mapTicket.id}
+                    className={`map-switch ${mapTicket.id === ticket.id ? 'active' : ''} ${
+                      mapTicket.status === 'complete' ? 'done' : ''
+                    }`}
+                    onClick={() => onOpenTicket?.(mapTicket.id)}
+                    disabled={mapTicket.id === ticket.id}
+                  >
+                    <span className={`slot-dot ${mapTicket.status}`} />
+                    <span className="map-switch-name">
+                      {mapTicket.mapType ? t(`map.${mapTicket.mapType}` as const) : mapTicket.title}
+                    </span>
+                    <span className="map-switch-status">{t(`status.${mapTicket.status}` as const)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="side-section external-section">
+            <div className="side-section-head">
+              <h3>
+                <Icon name="upload" size={14} /> {t('editor.external')}
+              </h3>
+            </div>
+            <p className="side-hint">{t('editor.externalHint')}</p>
+            <div className="external-actions">
+              <button className="ghost-button small" onClick={() => downloadTemplate('psd')}>
+                <Icon name="download" size={14} /> {t('editor.templatePsd')}
+              </button>
+              <button className="ghost-button small" onClick={() => downloadTemplate('png')}>
+                <Icon name="download" size={14} /> {t('editor.templatePng')}
+              </button>
+              <button className="primary-button small" onClick={() => uploadRef.current?.click()}>
+                <Icon name="upload" size={14} /> {t('editor.upload')}
+              </button>
+            </div>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept=".psd,image/*"
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                void handleUpload(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+          </section>
+
           <LayersPanel engine={engine} onChanged={scheduleSave} />
-          <NotesPanel ticket={ticket} onAddNote={(body) => onAddNote(ticket.id, body)} />
+          <NotesPanel
+            ticket={ticket}
+            onAddNote={(body) => onAddNote(ticket.id, body)}
+            onDeleteNote={(noteId) =>
+              void onUpdateTicket(ticket.id, { notes: ticket.notes.filter((note) => note.id !== noteId) })
+            }
+          />
       </aside>
 
       <div className="editor-statusbar">
@@ -442,6 +610,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         </span>
         <span className="statusbar-cell">{t('status.canvas', { w: dimensions.width, h: dimensions.height })}</span>
         {modeHint ? <span className="statusbar-hint">{modeHint}</span> : null}
+        {saveState !== 'idle' ? (
+          <span className={`statusbar-cell save-indicator ${saveState}`}>
+            {saveState === 'saving' ? t('editor.saving') : t('editor.saved')}
+          </span>
+        ) : null}
         <span className="statusbar-spacer" />
         <button
           className={`statusbar-button ${view.showGrid ? 'active' : ''}`}
@@ -473,6 +646,17 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         >
           <Icon name="image" size={14} />
         </button>
+        {modelGroup?.uvLayout && modelGroup.uvLayout.length > 0 ? (
+          <button
+            className={`statusbar-button ${view.showUvOverlay ? 'active' : ''}`}
+            onClick={() => viewChange({ showUvOverlay: !view.showUvOverlay })}
+            title={t('status.uvOverlay')}
+            aria-label={t('status.uvOverlay')}
+            aria-pressed={view.showUvOverlay}
+          >
+            <Icon name="layers" size={14} />
+          </button>
+        ) : null}
         <select
           className="statusbar-select"
           value={view.guide}
@@ -516,6 +700,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         </button>
         <span className="statusbar-cell zoom-value">{zoomPercent}%</span>
       </div>
+
+      {modelGroup ? (
+        <aside className="editor-preview-col">
+          <div className="side-section-head">
+            <h3>
+              <Icon name="cube" size={14} /> {t('model.preview')}
+            </h3>
+          </div>
+          <ModelPreview scene={modelGroup} tickets={groupTickets ?? []} onAttachModel={onAttachModel} />
+          <p className="side-hint">{t('model.previewEditorHint')}</p>
+        </aside>
+      ) : null}
 
       {confirmClear ? (
         <ConfirmDialog

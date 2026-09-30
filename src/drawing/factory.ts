@@ -1,11 +1,16 @@
 import type { LayerState } from '../types';
 import { createId } from '../utils/id';
 
-export function createDefaultLayerStates(): LayerState[] {
+export interface DefaultLayerNames {
+  paintName?: string;
+  referenceName?: string;
+}
+
+export function createDefaultLayerStates(names?: DefaultLayerNames): LayerState[] {
   return [
     {
       id: createId('layer'),
-      name: 'Reference',
+      name: names?.referenceName ?? 'Reference',
       kind: 'reference',
       visible: true,
       opacity: 1,
@@ -14,7 +19,7 @@ export function createDefaultLayerStates(): LayerState[] {
     },
     {
       id: createId('layer'),
-      name: 'Paint',
+      name: names?.paintName ?? 'Paint',
       kind: 'draw',
       visible: true,
       opacity: 1,
