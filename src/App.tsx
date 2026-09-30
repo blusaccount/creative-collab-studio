@@ -18,6 +18,7 @@ import { ToastStack, type ToastItem } from './components/Toast';
 import { Icon } from './components/Icon';
 import { DUNGEON_ENTRANCE_BLUEPRINT } from './data/dungeonScene';
 import { generateKnightMapDataUrl, getPlayerKnightBlueprint, getPlayerKnightPaintedBlueprint } from './data/modelDemo';
+import { EXAMPLE_MODELS, extractModelBaseColor, getExampleModelBlueprint } from './scenes/exampleModel';
 import { composeTicketBlob } from './drawing/compose';
 import { buildAssetFilename, slugify } from './utils/naming';
 import { buildProjectState } from './scenes/serialize';
@@ -200,6 +201,32 @@ function App() {
     return { layers, materialMapLayers, status: 'complete' as const, completedAt: Date.now() };
   };
 
+  const handleLoadExampleModel = async () => {
+    const model = EXAMPLE_MODELS[0];
+    if (!model) return;
+    const blueprint = getExampleModelBlueprint(model);
+    const existing = studio.projectScenes.find((scene) => scene.id === blueprint.id);
+    if (existing) {
+      studio.selectScene(existing.id);
+      setViewMode('scene');
+      notify(t('toast.demoSceneExists'), 'info');
+      return;
+    }
+    const texture = await extractModelBaseColor(model.url);
+    const scene = await studio.importBlueprint(blueprint, undefined, (ticket) =>
+      ticket.mapType === 'basecolor' && texture
+        ? {
+            layers: ticket.layers.map((layer) =>
+              layer.kind === 'draw' ? { ...layer, dataUrl: texture } : layer,
+            ),
+            status: 'in-progress' as const,
+          }
+        : {},
+    );
+    setViewMode('scene');
+    if (scene) notify(t('toast.groupLoaded', { count: scene.items.length }), 'success');
+  };
+
   const handleExportState = async () => {
     if (!studio.activeProject) return;
     const doc = await buildProjectState(studio.activeProject, studio.scenes, studio.tickets);
@@ -361,6 +388,14 @@ function App() {
             onClick={handleExportState}
           >
             <Icon name="download" size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title={t('app.loadExampleModel')}
+            aria-label={t('app.loadExampleModel')}
+            onClick={() => void handleLoadExampleModel()}
+          >
+            <Icon name="cube" size={16} />
           </button>
           <button
             className="icon-button lang-button"
