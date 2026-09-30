@@ -79,6 +79,7 @@ interface EditorProps {
   modelGroup?: Scene | null;
   groupTickets?: Ticket[];
   onAttachModel?: (file: File) => void;
+  onOpenTicket?: (id: string) => void;
   settings: StudioSettings;
   onUpdateTicket: (id: string, patch: Partial<Ticket>, options?: { touch?: boolean }) => Promise<void> | void;
   onAddNote: (ticketId: string, body: string) => void;
@@ -97,6 +98,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     modelGroup,
     groupTickets,
     onAttachModel,
+    onOpenTicket,
     settings: studioSettings,
     onUpdateTicket,
     onAddNote,
@@ -614,7 +616,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     if (u < -edgeTolerance || u > 1 + edgeTolerance || v < -edgeTolerance || v > 1 + edgeTolerance) return null;
     const localU = Math.max(0, Math.min(1, u));
     const localV = Math.max(0, Math.min(1, v));
-    return { x: localU * dimensions.width, y: (1 - localV) * dimensions.height };
+    // localV is already top-down (uv.v is bottom-up), so do NOT flip again.
+    return { x: localU * dimensions.width, y: localV * dimensions.height };
   };
   const modelPaintMode =
     isMaterialTicket && paintSurface === 'model'
@@ -731,6 +734,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
                 liveTicketId={ticket.id}
                 livePart={ticket.modelPart}
                 paintMode={modelPaintMode}
+                onOpenPart={onOpenTicket}
               />
             </div>
           ) : ready ? (
@@ -1008,6 +1012,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             liveTicketId={isMaterialTicket ? ticket.id : undefined}
             livePart={isMaterialTicket ? ticket.modelPart : undefined}
             paintMode={modelPaintMode}
+            onOpenPart={onOpenTicket}
           />
           {ticket.modelPart ? (
             <section className="part-model-preview">
@@ -1029,6 +1034,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
                     ? modelPaintMode
                     : undefined
                 }
+                onOpenPart={onOpenTicket}
               />
             </section>
           ) : null}

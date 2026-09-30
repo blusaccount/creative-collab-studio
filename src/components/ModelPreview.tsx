@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import type { MapType, MeshSpec, Scene, Ticket, ToolSettings, UvIsland } from '../types';
+import type { EngineTarget, MapType, MeshSpec, Scene, Ticket, ToolSettings, UvIsland } from '../types';
 import { composeModelMapCanvas, modelMapFallbackColor } from '../drawing/compose';
 import { MAP_TYPES } from '../scenes/maps';
 import { t } from '../i18n';
@@ -31,6 +31,8 @@ interface PreviewState {
   standardMaterials: Map<THREE.Mesh, THREE.MeshStandardMaterial>;
   tickets: Ticket[];
   sceneDimensions: { width: number; height: number };
+  sceneTarget?: EngineTarget;
+  uvLayout: UvIsland[];
   flipY: boolean;
   token: number;
   visibleMaps: Set<MapType>;
@@ -121,15 +123,21 @@ async function applyTextures(state: PreviewState): Promise<void> {
       );
     }
     const material = state.standardMaterials.get(mesh)!;
+    const packed = byMap.packed;
+    // three reads roughness from G and metalness from B, so an Unreal ORM map can
+    // be used directly. Unity packs metal(R)/smoothness(A), which three cannot
+    // read as roughness/metalness — so we do not use a Unity pack for PBR.
+    const packedPbr = packed && state.sceneTarget !== 'unity' ? packed : null;
     material.map = byMap.other ?? byMap.basecolor ?? null;
     material.normalMap = byMap.normal ?? null;
-    material.roughnessMap = byMap.roughness ?? byMap.packed ?? null;
-    material.metalnessMap = byMap.metallic ?? byMap.packed ?? null;
-    material.aoMap = byMap.ao ?? byMap.packed ?? null;
+    material.roughnessMap = byMap.roughness ?? packedPbr ?? null;
+    material.metalnessMap = byMap.metallic ?? packedPbr ?? null;
+    // AO sits in R only for Unreal ORM; glTF keeps AO separate.
+    material.aoMap = byMap.ao ?? (packed && (state.sceneTarget === 'unreal' || state.sceneTarget === undefined) ? packed : null);
     material.emissiveMap = byMap.emissive ?? null;
     material.emissive = new THREE.Color(byMap.emissive ? 0xffffff : 0x000000);
-    material.metalness = byMap.metallic || byMap.packed ? 1 : 0;
-    material.roughness = byMap.roughness || byMap.packed ? 1 : 0.65;
+    material.metalness = byMap.metallic || packedPbr ? 1 : 0;
+    material.roughness = byMap.roughness || packedPbr ? 1 : 0.65;
     material.alphaMap = byMap.opacity ?? null;
     material.transparent = Boolean(byMap.opacity);
     material.displacementMap = byMap.height ?? null;
@@ -162,7 +170,29 @@ function focusModelPart(state: PreviewState, part?: string): void {
   root.traverse((object) => {
     if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh);
   });
-  const matching = part ? matchingPartMeshes(root, part) : [];
+  let matching = part ? matchingPartMeshes(root, part) : [];
+  // Imported .glb meshes often don't carry our part names — fall back to
+  // matching by UV region (the mesh whose UV centroid sits in the part island).
+  if (part && matching.length === 0) {
+    const island = state.uvLayout.find((entry) => entry.name === part);
+    if (island) {
+      const vLow = 1 - island.y - island.h;
+      const vHigh = 1 - island.y;
+      matching = meshes.filter((mesh) => {
+        const uv = mesh.geometry.attributes.uv as THREE.BufferAttribute | undefined;
+        if (!uv || uv.count === 0) return false;
+        let sumU = 0;
+        let sumV = 0;
+        for (let i = 0; i < uv.count; i += 1) {
+          sumU += uv.getX(i);
+          sumV += uv.getY(i);
+        }
+        const cu = sumU / uv.count;
+        const cv = sumV / uv.count;
+        return cu >= island.x - 0.02 && cu <= island.x + island.w + 0.02 && cv >= vLow - 0.02 && cv <= vHigh + 0.02;
+      });
+    }
+  }
   const hasPartMatch = matching.length > 0;
   meshes.forEach((mesh) => {
     mesh.visible = !hasPartMatch || matching.includes(mesh);
@@ -286,6 +316,8 @@ interface ModelPreviewProps {
   paintMode?: PaintMode;
   focusPart?: string;
   showMapControls?: boolean;
+  /** Called when the user clicks a part other than the one being painted. */
+  onOpenPart?: (ticketId: string) => void;
 }
 
 export function ModelPreview({
@@ -300,6 +332,7 @@ export function ModelPreview({
   paintMode,
   focusPart,
   showMapControls = true,
+  onOpenPart,
 }: ModelPreviewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<PreviewState | null>(null);
@@ -398,6 +431,8 @@ export function ModelPreview({
       standardMaterials: new Map(),
       tickets,
       sceneDimensions: scene.canvas,
+      sceneTarget: scene.target,
+      uvLayout: scene.uvLayout ?? [],
       flipY: true,
       token: 0,
       visibleMaps: new Set(MAP_TYPES),
@@ -445,6 +480,8 @@ export function ModelPreview({
     }
     state.defaultMesh.visible = false;
     state.flipY = true;
+    state.sceneTarget = scene.target;
+    state.uvLayout = scene.uvLayout ?? [];
 
     const attach = (root: THREE.Object3D, flipY: boolean) => {
       if (!isCurrent()) return;
@@ -583,6 +620,21 @@ export function ModelPreview({
     setPaintCursor({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
     const uv = paintHit(event);
     if (!uv) return;
+    // Clicking a different body part switches to that part's ticket instead of painting.
+    if (paint.partName) {
+      const state = stateRef.current;
+      const island = state?.uvLayout.find(
+        (entry) =>
+          uv.u >= entry.x && uv.u <= entry.x + entry.w && 1 - uv.v >= entry.y && 1 - uv.v <= entry.y + entry.h,
+      );
+      if (island && island.name !== paint.partName) {
+        const target = state?.tickets.find((ticket) => ticket.modelPart?.name === island.name);
+        if (target && onOpenPart) {
+          onOpenPart(target.id);
+          return;
+        }
+      }
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     paintPointerRef.current = true;
     paint.onStart(uv);
