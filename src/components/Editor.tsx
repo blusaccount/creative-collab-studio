@@ -7,10 +7,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type {
   BackgroundKind,
   GuideShape,
   LayerState,
+  MapType,
   Project,
   Scene,
   StudioSettings,
@@ -20,8 +22,10 @@ import type {
   ViewState,
 } from '../types';
 import { DrawingEngine } from '../drawing/DrawingEngine';
+import { createDefaultLayerStates } from '../drawing/factory';
 import { t } from '../i18n';
-import { mapColorSpace, mapPurposeKey, mapSortIndex, packingHintKey } from '../scenes/maps';
+import { createPartUvTemplate } from '../scenes/build';
+import { mapColorSpace, mapDefaultBackground, mapPurposeKey, packingHintKey } from '../scenes/maps';
 import { buildAssetFilename } from '../utils/naming';
 import { downloadBlob } from '../utils/download';
 import { composeTemplatePng, composeTemplatePsd, isPsdFile, readImageToCanvas, readPsdToCanvas } from '../utils/psd';
@@ -34,7 +38,37 @@ import { ConfirmDialog } from './Modal';
 import { Icon } from './Icon';
 
 export interface EditorHandle {
-  flush: () => { layers: LayerState[]; background: BackgroundKind } | null;
+  flush: () =>
+    | ({ layers: LayerState[]; background: BackgroundKind } & Partial<Pick<Ticket, 'materialMapLayers'>>)
+    | null;
+}
+
+function materialBrushColor(map: MapType, value: number, color: string): string {
+  if (map === 'basecolor' || map === 'normal' || map === 'emissive' || map === 'other' || map === 'packed') {
+    return color;
+  }
+  const amount = map === 'ao' ? 100 - value : value;
+  const channel = Math.round((amount / 100) * 255).toString(16).padStart(2, '0');
+  return `#${channel}${channel}${channel}`;
+}
+
+function createMaterialMapLayers(map: MapType, uvTemplate?: string, partName?: string): LayerState[] {
+  const layers = createDefaultLayerStates({ paintName: `Paint – ${map}`, referenceName: 'UV – Reference' });
+  const reference = layers.find((layer) => layer.kind === 'reference');
+  if (reference) {
+    if (partName) reference.dataUrl = createPartUvTemplate(partName);
+    else if (uvTemplate) reference.dataUrl = uvTemplate;
+  }
+  return layers;
+}
+
+function nameMaterialMapLayers(layers: LayerState[], map: MapType): LayerState[] {
+  if (map === 'basecolor') return layers;
+  return layers.map((layer) =>
+    layer.kind === 'draw' && layer.name === 'Paint – BaseColor'
+      ? { ...layer, name: `Paint – ${map}` }
+      : layer,
+  );
 }
 
 interface EditorProps {
@@ -45,7 +79,6 @@ interface EditorProps {
   modelGroup?: Scene | null;
   groupTickets?: Ticket[];
   onAttachModel?: (file: File) => void;
-  onOpenTicket?: (id: string) => void;
   settings: StudioSettings;
   onUpdateTicket: (id: string, patch: Partial<Ticket>, options?: { touch?: boolean }) => Promise<void> | void;
   onAddNote: (ticketId: string, body: string) => void;
@@ -64,7 +97,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     modelGroup,
     groupTickets,
     onAttachModel,
-    onOpenTicket,
     settings: studioSettings,
     onUpdateTicket,
     onAddNote,
@@ -99,6 +131,24 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     fontFamily: 'Arial',
     fontSize: 24,
   });
+  const materialChannels = modelGroup?.kind === 'model' ? ticket.materialChannels ?? [] : [];
+  const [activeMaterialChannel, setActiveMaterialChannel] = useState<MapType>(
+    materialChannels.find((channel) => channel.map === 'basecolor')?.map ?? materialChannels[0]?.map ?? 'basecolor',
+  );
+  const activeMaterialChannelRef = useRef(activeMaterialChannel);
+  activeMaterialChannelRef.current = activeMaterialChannel;
+  const materialMapLayersRef = useRef(ticket.materialMapLayers ?? {});
+  const baseColorLayersRef = useRef(ticket.layers);
+  const [materialValue, setMaterialValue] = useState<Record<string, number>>({
+    metallic: 0,
+    roughness: 35,
+    ao: 0,
+    opacity: 100,
+    height: 50,
+  });
+  const [paintSurface, setPaintSurface] = useState<'uv' | 'model'>('uv');
+  const [liveMaterialVersion, setLiveMaterialVersion] = useState(0);
+  const liveMaterialCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [view, setView] = useState<ViewState>({
     zoom: 1,
     panX: 0,
@@ -115,6 +165,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const [confirmRevert, setConfirmRevert] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [previewWidth, setPreviewWidth] = useState(380);
+  const previewResizeRef = useRef<number | null>(null);
   const savedTimer = useRef<number | null>(null);
   const baselineRef = useRef<LayerState[] | null>(null);
   const uploadRef = useRef<HTMLInputElement | null>(null);
@@ -128,10 +180,27 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     setView((current) => ({ ...current, ...patch }));
   }, []);
 
-  const snapshotLayers = useCallback(
-    () => ({ layers: engine.serializeLayers(), background: engine.getBackground() }),
-    [engine],
-  );
+  const updateLiveMaterial = useCallback(() => {
+    const canvas = liveMaterialCanvasRef.current;
+    if (canvas) engine.renderFull(canvas, { includeBackground: false, includeReferences: false });
+    setLiveMaterialVersion((version) => version + 1);
+  }, [engine]);
+
+  const snapshotLayers = useCallback(() => {
+    const layers = engine.serializeLayers();
+    const map = activeMaterialChannelRef.current;
+    if (materialChannels.length === 0 || map === 'basecolor') {
+      baseColorLayersRef.current = layers;
+      return {
+        layers,
+        background: engine.getBackground(),
+        materialMapLayers: materialMapLayersRef.current,
+      };
+    }
+    const materialMapLayers = { ...materialMapLayersRef.current, [map]: layers };
+    materialMapLayersRef.current = materialMapLayers;
+    return { layers: baseColorLayersRef.current, background: ticket.background, materialMapLayers };
+  }, [engine, materialChannels.length, ticket.background, ticket.layers]);
 
   const persistRef = useRef<() => void>(() => {});
   const ticketIdRef = useRef(ticket.id);
@@ -160,12 +229,61 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     }, 400);
   }, []);
 
+  const selectMaterialChannel = useCallback(
+    async (map: MapType) => {
+      const previous = activeMaterialChannelRef.current;
+      if (map === previous) return;
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const saved = snapshotLayers();
+      void onUpdateTicket(ticket.id, saved, { touch: false });
+      const materialMapLayers = saved.materialMapLayers ?? materialMapLayersRef.current;
+      materialMapLayersRef.current = materialMapLayers;
+      activeMaterialChannelRef.current = map;
+      setActiveMaterialChannel(map);
+      setReady(false);
+      const layers =
+        map === 'basecolor'
+          ? baseColorLayersRef.current
+          : nameMaterialMapLayers(
+              materialMapLayers[map] ?? createMaterialMapLayers(map, uvTemplate, ticket.modelPart?.name),
+              map,
+            );
+      if (map !== 'basecolor') {
+        materialMapLayersRef.current = { ...materialMapLayers, [map]: layers };
+      }
+      await engine.loadFromLayers(layers, map === 'basecolor' ? ticket.background : mapDefaultBackground(map));
+      baselineRef.current = layers.map((layer) => ({ ...layer }));
+      setReady(true);
+      setFitNonce((value) => value + 1);
+    },
+    [engine, onUpdateTicket, snapshotLayers, ticket.background, ticket.id, ticket.layers, ticket.modelPart, uvTemplate],
+  );
+
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    engine.loadFromLayers(ticket.layers, ticket.background).then(() => {
+    const initialMap = activeMaterialChannelRef.current;
+    const initialLayers =
+      materialChannels.length > 0 && initialMap !== 'basecolor'
+        ? nameMaterialMapLayers(
+            materialMapLayersRef.current[initialMap] ??
+              createMaterialMapLayers(initialMap, uvTemplate, ticket.modelPart?.name),
+            initialMap,
+          )
+        : ticket.layers;
+    if (materialChannels.length > 0 && initialMap !== 'basecolor') {
+      materialMapLayersRef.current = { ...materialMapLayersRef.current, [initialMap]: initialLayers };
+    }
+    const initialBackground =
+      materialChannels.length > 0 && initialMap !== 'basecolor'
+        ? mapDefaultBackground(initialMap)
+        : ticket.background;
+    engine.loadFromLayers(initialLayers, initialBackground).then(() => {
       if (cancelled) return;
-      baselineRef.current = ticket.layers.map((layer) => ({ ...layer }));
+      baselineRef.current = initialLayers.map((layer) => ({ ...layer }));
       setReady(true);
     });
     return () => {
@@ -185,8 +303,26 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   // Provide the model's UV islands as a non-printing canvas overlay.
   useEffect(() => {
-    engine.setUvLayout(modelGroup?.uvLayout ?? []);
-  }, [engine, modelGroup?.uvLayout]);
+    engine.setUvLayout(
+      ticket.modelPart
+        ? [{ ...ticket.modelPart, x: 0, y: 0, w: 1, h: 1 }]
+        : modelGroup?.uvLayout ?? [],
+    );
+  }, [engine, modelGroup?.uvLayout, ticket.modelPart]);
+
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    liveMaterialCanvasRef.current = canvas;
+    const render = () => {
+      engine.renderFull(canvas, { includeBackground: false, includeReferences: false });
+    };
+    render();
+    const unsubscribe = engine.subscribe(render);
+    return () => {
+      unsubscribe();
+      liveMaterialCanvasRef.current = null;
+    };
+  }, [engine]);
 
   useEffect(() => {
     return () => {
@@ -212,9 +348,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
   useEffect(() => {
     if (engine.getBackground() !== ticket.background) {
-      engine.setBackground(ticket.background);
+      const initialMap = activeMaterialChannelRef.current;
+      engine.setBackground(
+        materialChannels.length > 0 && initialMap !== 'basecolor'
+          ? mapDefaultBackground(initialMap)
+          : ticket.background,
+      );
     }
-  }, [engine, ticket.background]);
+  }, [engine, materialChannels.length, ticket.background]);
 
   useEffect(() => {
     const { width, height } = engine.getSize();
@@ -252,10 +393,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       notify(t('editor.toast.exportFailed'), 'error');
       return;
     }
-    downloadBlob(blob, buildAssetFilename(ticket, project, studioSettings));
+    const exportTicket =
+      materialChannels.length > 0
+        ? { ...ticket, mapType: activeMaterialChannelRef.current, title: t(`map.${activeMaterialChannelRef.current}` as const) }
+        : ticket;
+    downloadBlob(blob, buildAssetFilename(exportTicket, project, studioSettings));
     await onUpdateTicket(ticket.id, { ...snapshotLayers(), version: ticket.version + 1 });
     notify(t('toast.exported'), 'success');
-  }, [engine, ticket, project, studioSettings, onUpdateTicket, notify, snapshotLayers]);
+  }, [engine, ticket, materialChannels.length, project, studioSettings, onUpdateTicket, notify, snapshotLayers]);
 
   const handleRevert = useCallback(async () => {
     if (!baselineRef.current) return;
@@ -269,16 +414,29 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   const downloadTemplate = useCallback(
     async (format: 'psd' | 'png') => {
       try {
-        const blob = format === 'psd' ? await composeTemplatePsd(ticket) : await composeTemplatePng(ticket);
+        const templateTicket =
+          materialChannels.length > 0 && activeMaterialChannelRef.current !== 'basecolor'
+            ? {
+                ...ticket,
+                mapType: activeMaterialChannelRef.current,
+                title: t(`map.${activeMaterialChannelRef.current}` as const),
+                layers: engine.serializeLayers(),
+                background: engine.getBackground(),
+              }
+            : ticket;
+        const blob =
+          format === 'psd'
+            ? await composeTemplatePsd(templateTicket)
+            : await composeTemplatePng(templateTicket);
         if (!blob) throw new Error('empty template');
-        const base = buildAssetFilename(ticket, project, studioSettings).replace(/\.png$/i, '');
+        const base = buildAssetFilename(templateTicket, project, studioSettings).replace(/\.png$/i, '');
         downloadBlob(blob, `${base}-template.${format}`);
         notify(t('editor.toast.templateSaved'), 'success');
       } catch {
         notify(t('editor.toast.templateFailed'), 'error');
       }
     },
-    [ticket, project, studioSettings, notify],
+    [ticket, materialChannels.length, engine, project, studioSettings, notify],
   );
 
   const handleUpload = useCallback(
@@ -410,11 +568,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   }, [engine, scheduleSave, notify]);
 
   const dimensions = engine.getSize();
-  const sortedGroupTickets =
-    groupTickets && groupTickets.length > 0
-      ? [...groupTickets].sort((a, b) => mapSortIndex(a.mapType) - mapSortIndex(b.mapType))
-      : [];
-  const mapIndex = sortedGroupTickets.findIndex((item) => item.id === ticket.id);
   const canUndo = engine.canUndo();
   const canRedo = engine.canRedo();
   const zoomPercent = Math.round(view.zoom * 100);
@@ -423,9 +576,75 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     : engine.isCurveBending()
       ? t('tool.hint.curve')
       : null;
+  const isMaterialTicket = materialChannels.length > 0;
+  const selectedMaterialValue = materialValue[activeMaterialChannel] ?? 50;
+  const canvasSettings =
+    isMaterialTicket && activeMaterialChannel !== 'basecolor'
+      ? {
+          ...tool,
+          tool: 'brush' as const,
+          color: materialBrushColor(activeMaterialChannel, selectedMaterialValue, tool.color),
+        }
+      : tool;
+  const modelStrokeSettings =
+    canvasSettings.tool === 'pencil' ? { ...canvasSettings, preset: 'hard' as const } : canvasSettings;
+  const hasScalarValue =
+    activeMaterialChannel === 'metallic' ||
+    activeMaterialChannel === 'roughness' ||
+    activeMaterialChannel === 'ao' ||
+    activeMaterialChannel === 'opacity' ||
+    activeMaterialChannel === 'height';
+  const guidanceMap = isMaterialTicket ? activeMaterialChannel : ticket.mapType;
+  const channelBrief = isMaterialTicket
+    ? materialChannels.find((channel) => channel.map === activeMaterialChannel)?.brief
+    : undefined;
+  const previewStyle = modelGroup
+    ? ({ '--editor-preview-width': `${previewWidth}px` } as CSSProperties)
+    : undefined;
+  const resizePreview = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (previewResizeRef.current !== event.pointerId) return;
+    setPreviewWidth(Math.max(220, Math.min(720, window.innerWidth - event.clientX)));
+  };
+  const paintPoint = (uv: { u: number; v: number }) => {
+    const part = ticket.modelPart;
+    if (!part) return { x: uv.u * dimensions.width, y: (1 - uv.v) * dimensions.height };
+    const u = (uv.u - part.x) / part.w;
+    const v = (1 - uv.v - part.y) / part.h;
+    const edgeTolerance = 0.0001;
+    if (u < -edgeTolerance || u > 1 + edgeTolerance || v < -edgeTolerance || v > 1 + edgeTolerance) return null;
+    const localU = Math.max(0, Math.min(1, u));
+    const localV = Math.max(0, Math.min(1, v));
+    return { x: localU * dimensions.width, y: (1 - localV) * dimensions.height };
+  };
+  const modelPaintMode =
+    isMaterialTicket && paintSurface === 'model'
+      ? {
+          ticketId: ticket.id,
+          partName: ticket.modelPart?.name,
+          settings: modelStrokeSettings,
+          onStart: (uv: { u: number; v: number }) => {
+            if (!ready) return;
+            const point = paintPoint(uv);
+            if (!point) return;
+            engine.beginStroke(modelStrokeSettings, point.x, point.y);
+            updateLiveMaterial();
+          },
+          onMove: (uv: { u: number; v: number }) => {
+            if (!ready) return;
+            const point = paintPoint(uv);
+            if (!point) return;
+            engine.moveStroke(modelStrokeSettings, point.x, point.y);
+            updateLiveMaterial();
+          },
+          onEnd: () => {
+            engine.endStroke();
+            scheduleSave();
+          },
+        }
+      : undefined;
 
   return (
-    <section className={`editor-panel ${modelGroup ? 'with-preview' : ''}`}>
+    <section className={`editor-panel ${modelGroup ? 'with-preview' : ''}`} style={previewStyle}>
       <PaintRibbon
         settings={tool}
         onSettingsChange={updateTool}
@@ -442,15 +661,87 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       />
 
       <div className="editor-body">
-        <div className="stage-wrap">
-          {ready ? (
+        <div
+          className={`stage-wrap ${isMaterialTicket ? 'material-mode' : ''} ${
+            isMaterialTicket && paintSurface === 'model' ? 'painting-model' : ''
+          }`}
+        >
+          {isMaterialTicket ? (
+            <div className="material-paint-controls">
+              <div className="material-channel-buttons" role="group" aria-label={t('material.channel')}>
+                {materialChannels.map((channel) => (
+                  <button
+                    key={channel.map}
+                    type="button"
+                    className={`chip tiny ${activeMaterialChannel === channel.map ? 'active' : ''}`}
+                    onClick={() => void selectMaterialChannel(channel.map)}
+                  >
+                    {t(`map.${channel.map}` as const)}
+                  </button>
+                ))}
+              </div>
+              <div className="material-paint-options">
+                {hasScalarValue ? (
+                  <label className="material-value">
+                    <span>{t(`material.value.${activeMaterialChannel}` as const)}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={selectedMaterialValue}
+                      onChange={(event) =>
+                        setMaterialValue((current) => ({
+                          ...current,
+                          [activeMaterialChannel]: Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <output>{selectedMaterialValue}%</output>
+                  </label>
+                ) : null}
+                <div className="material-surface-toggle" role="group" aria-label={t('material.paintOn')}>
+                  <button
+                    type="button"
+                    className={`chip tiny ${paintSurface === 'uv' ? 'active' : ''}`}
+                    onClick={() => setPaintSurface('uv')}
+                  >
+                    {t('material.uvCanvas')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip tiny ${paintSurface === 'model' ? 'active' : ''}`}
+                    onClick={() => setPaintSurface('model')}
+                  >
+                    {t('material.3dModel')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {isMaterialTicket && paintSurface === 'model' && modelGroup ? (
+            <div className="canvas-model-view">
+              <ModelPreview
+                scene={modelGroup}
+                tickets={groupTickets ?? []}
+                focusPart={ticket.modelPart?.name}
+                showMapControls={false}
+                liveMap={activeMaterialChannel}
+                liveCanvas={liveMaterialCanvasRef.current ?? undefined}
+                liveVersion={liveMaterialVersion}
+                liveTicketId={ticket.id}
+                livePart={ticket.modelPart}
+                paintMode={modelPaintMode}
+              />
+            </div>
+          ) : ready ? (
             <CanvasStage
               engine={engine}
               view={view}
               onViewChange={viewChange}
-              settings={tool}
+              settings={canvasSettings}
               onPickColor={handlePickColor}
               onCommit={scheduleSave}
+              onLiveUpdate={isMaterialTicket ? updateLiveMaterial : undefined}
               onCursorMove={setCursor}
               fitNonce={fitNonce}
             />
@@ -462,6 +753,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             <div className="vslider" title={t('ribbon.lineWidth')}>
               <input
                 type="range"
+                aria-label={t('ribbon.lineWidth')}
+                title={t('ribbon.lineWidth')}
                 min={1}
                 max={64}
                 value={tool.size}
@@ -472,6 +765,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             <div className="vslider" title={t('tool.opacity')}>
               <input
                 type="range"
+                aria-label={t('tool.opacity')}
+                title={t('tool.opacity')}
                 min={5}
                 max={100}
                 value={Math.round(tool.opacity * 100)}
@@ -515,50 +810,19 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             </div>
           </div>
 
-          {ticket.mapType ? (
+          {guidanceMap ? (
             <section className="side-section map-guidance">
               <div className="side-section-head">
                 <h3>
                   <Icon name="layers" size={14} /> {t('editor.mapPanel')}
                 </h3>
                 <span className="map-cs">
-                  {t(mapColorSpace(ticket.mapType) === 'srgb' ? 'colorspace.srgb' : 'colorspace.linear')}
+                  {t(mapColorSpace(guidanceMap) === 'srgb' ? 'colorspace.srgb' : 'colorspace.linear')}
                 </span>
               </div>
-              <span className="map-chip">{t(`map.${ticket.mapType}` as const)}</span>
-              <p className="side-hint">{t(mapPurposeKey(ticket.mapType))}</p>
+              <span className="map-chip">{t(`map.${guidanceMap}` as const)}</span>
+              <p className="side-hint map-guidance-copy">{channelBrief || t(mapPurposeKey(guidanceMap))}</p>
               {modelGroup?.target ? <p className="side-hint packing-hint">{t(packingHintKey(modelGroup.target))}</p> : null}
-            </section>
-          ) : null}
-
-          {modelGroup && sortedGroupTickets.length > 0 ? (
-            <section className="side-section">
-              <div className="side-section-head">
-                <h3>
-                  <Icon name="cube" size={14} /> {t('editor.mapSwitcher')}
-                </h3>
-                <span className="count">
-                  {t('editor.mapOf', { current: mapIndex + 1, total: sortedGroupTickets.length })}
-                </span>
-              </div>
-              <div className="map-switch-list">
-                {sortedGroupTickets.map((mapTicket) => (
-                  <button
-                    key={mapTicket.id}
-                    className={`map-switch ${mapTicket.id === ticket.id ? 'active' : ''} ${
-                      mapTicket.status === 'complete' ? 'done' : ''
-                    }`}
-                    onClick={() => onOpenTicket?.(mapTicket.id)}
-                    disabled={mapTicket.id === ticket.id}
-                  >
-                    <span className={`slot-dot ${mapTicket.status}`} />
-                    <span className="map-switch-name">
-                      {mapTicket.mapType ? t(`map.${mapTicket.mapType}` as const) : mapTicket.title}
-                    </span>
-                    <span className="map-switch-status">{t(`status.${mapTicket.status}` as const)}</span>
-                  </button>
-                ))}
-              </div>
             </section>
           ) : null}
 
@@ -702,15 +966,74 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       </div>
 
       {modelGroup ? (
+        <>
+        <div
+          className="editor-preview-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('model.resizePreview')}
+          aria-valuenow={previewWidth}
+          aria-valuemin={220}
+          aria-valuemax={720}
+          tabIndex={0}
+          onPointerDown={(event) => {
+            previewResizeRef.current = event.pointerId;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={resizePreview}
+          onPointerUp={(event) => {
+            if (previewResizeRef.current === event.pointerId) previewResizeRef.current = null;
+          }}
+          onPointerCancel={(event) => {
+            if (previewResizeRef.current === event.pointerId) previewResizeRef.current = null;
+          }}
+          onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+            if (event.key === 'ArrowLeft') setPreviewWidth((width) => Math.min(720, width + 24));
+            if (event.key === 'ArrowRight') setPreviewWidth((width) => Math.max(220, width - 24));
+          }}
+        />
         <aside className="editor-preview-col">
           <div className="side-section-head">
             <h3>
               <Icon name="cube" size={14} /> {t('model.preview')}
             </h3>
           </div>
-          <ModelPreview scene={modelGroup} tickets={groupTickets ?? []} onAttachModel={onAttachModel} />
-          <p className="side-hint">{t('model.previewEditorHint')}</p>
+          <ModelPreview
+            scene={modelGroup}
+            tickets={groupTickets ?? []}
+            onAttachModel={onAttachModel}
+            liveMap={isMaterialTicket ? activeMaterialChannel : undefined}
+            liveCanvas={isMaterialTicket ? liveMaterialCanvasRef.current ?? undefined : undefined}
+            liveVersion={liveMaterialVersion}
+            liveTicketId={isMaterialTicket ? ticket.id : undefined}
+            livePart={isMaterialTicket ? ticket.modelPart : undefined}
+            paintMode={modelPaintMode}
+          />
+          {ticket.modelPart ? (
+            <section className="part-model-preview">
+              <div className="side-section-head">
+                <h3>{t('model.partPreview', { part: ticket.modelPart.name })}</h3>
+              </div>
+              <ModelPreview
+                scene={modelGroup}
+                tickets={groupTickets ?? []}
+                focusPart={ticket.modelPart.name}
+                showMapControls={false}
+                liveMap={isMaterialTicket ? activeMaterialChannel : undefined}
+                liveCanvas={isMaterialTicket ? liveMaterialCanvasRef.current ?? undefined : undefined}
+                liveVersion={liveMaterialVersion}
+                liveTicketId={isMaterialTicket ? ticket.id : undefined}
+                livePart={isMaterialTicket ? ticket.modelPart : undefined}
+                paintMode={
+                  isMaterialTicket && paintSurface === 'model'
+                    ? modelPaintMode
+                    : undefined
+                }
+              />
+            </section>
+          ) : null}
         </aside>
+        </>
       ) : null}
 
       {confirmClear ? (

@@ -162,6 +162,8 @@ export function useStudio() {
             dimensions: ticket.dimensions,
             background: ticket.background,
             mapType: ticket.mapType,
+            materialChannels: ticket.materialChannels,
+            modelPart: ticket.modelPart,
             updatedAt: Date.now(),
           } as Ticket;
         });

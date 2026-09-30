@@ -4,6 +4,7 @@ import type {
   MapType,
   Scene,
   SceneBlueprint,
+  SceneBlueprintMap,
   BlueprintReference,
   MeshPart,
   MeshSpec,
@@ -39,12 +40,25 @@ const MAP_TITLES: Record<MapType, string> = {
   other: 'Map',
 };
 
+export function createPartUvTemplate(name: string): string {
+  const label = name.replace(/[<>&"]/g, (character) => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+  })[character] ?? character);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="#161922"/><path d="M0 64H512M0 128H512M0 192H512M0 256H512M0 320H512M0 384H512M0 448H512M64 0V512M128 0V512M192 0V512M256 0V512M320 0V512M384 0V512M448 0V512" stroke="#ffffff" stroke-opacity=".08"/><rect x="3" y="3" width="506" height="506" fill="#4cc2ff" fill-opacity=".08" stroke="#4cc2ff" stroke-width="6"/><text x="18" y="40" fill="#ffffff" font-family="Arial,sans-serif" font-size="24" font-weight="600">${label}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 interface BuiltEntry {
   id?: string;
   title: string;
   type: TicketType;
   status: TicketStatus;
   map?: MapType;
+  materialChannels?: SceneBlueprintMap[];
+  modelPart?: UvIsland;
   dimensions: { width: number; height: number };
   background: BackgroundKind;
   brief: string;
@@ -55,6 +69,50 @@ function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
   const size = blueprint.canvas ?? { width: 512, height: 512, background: '#ffffff' };
 
   if (blueprint.maps && blueprint.maps.length > 0) {
+    if (blueprint.kind === 'model') {
+      const partMaps = blueprint.maps.filter((map) => map.part);
+      if (
+        partMaps.length === blueprint.maps.length &&
+        blueprint.uvLayout?.length &&
+        partMaps.every((map) => blueprint.uvLayout!.some((island) => island.name === map.part))
+      ) {
+        return blueprint.uvLayout.flatMap((island, index) => {
+          const channels = partMaps.filter((map) => map.part === island.name);
+          if (channels.length === 0) return [];
+          const baseColor = channels.find((map) => map.map === 'basecolor') ?? channels[0];
+          const atlasDimensions = baseColor.dimensions ?? { width: size.width, height: size.height };
+          return [{
+            id: baseColor.id,
+            title: island.name,
+            type: 'texture' as TicketType,
+            status: 'backlog' as TicketStatus,
+            map: 'basecolor' as MapType,
+            materialChannels: channels,
+            modelPart: island,
+            dimensions: {
+              width: Math.max(1, Math.round(atlasDimensions.width * island.w)),
+              height: Math.max(1, Math.round(atlasDimensions.height * island.h)),
+            },
+            background: baseColor.background ?? mapDefaultBackground('basecolor'),
+            brief: baseColor.brief ?? '',
+            layout: { x: 0, y: 0, width: island.w, height: island.h, layer: index },
+          }];
+        });
+      }
+      const baseColor = blueprint.maps.find((map) => map.map === 'basecolor') ?? blueprint.maps[0];
+      return [{
+        id: baseColor.id,
+        title: baseColor.title ?? MAP_TITLES[baseColor.map] ?? 'BaseColor',
+        type: 'texture',
+        status: 'backlog',
+        map: 'basecolor',
+        materialChannels: blueprint.maps,
+        dimensions: baseColor.dimensions ?? { width: size.width, height: size.height },
+        background: baseColor.background ?? mapDefaultBackground('basecolor'),
+        brief: baseColor.brief ?? '',
+        layout: { x: 0, y: 0, width: size.width, height: size.height, layer: 0 },
+      }];
+    }
     return blueprint.maps.map((map, index) => ({
       id: map.id,
       title: map.title ?? `${MAP_TITLES[map.map] ?? 'Map'}`,
@@ -97,6 +155,8 @@ export function buildSceneFromBlueprint(
       projectId,
       sceneId,
       mapType: entry.map,
+      materialChannels: entry.materialChannels,
+      modelPart: entry.modelPart,
       title: entry.title,
       description: entry.brief,
       type: entry.type,
@@ -115,6 +175,10 @@ export function buildSceneFromBlueprint(
       createdAt: now + index,
       updatedAt: now + index,
     };
+    if (entry.modelPart) {
+      const reference = ticket.layers.find((layer) => layer.kind === 'reference');
+      if (reference) reference.dataUrl = createPartUvTemplate(entry.modelPart.name);
+    }
     tickets.push(ticket);
     return {
       id: createId('item'),
@@ -338,6 +402,9 @@ export function validateBlueprintReport(value: unknown): { blueprint: SceneBluep
     raw.maps.forEach((entry, index) => {
       if (!entry || typeof entry !== 'object') return;
       const map = entry as Record<string, unknown>;
+      if (map.part !== undefined && (typeof map.part !== 'string' || !map.part.trim())) {
+        report.errors.push(`Map ${index + 1}: "part" muss ein nichtleerer UV-Bereichsname sein.`);
+      }
       if (map.map === undefined || !MAP_TYPES.includes(map.map as MapType)) {
         report.warnings.push(`Map ${index + 1}: unbekannter "map"-Wert (${String(map.map)}) — verwende "other".`);
       }
@@ -349,6 +416,7 @@ export function validateBlueprintReport(value: unknown): { blueprint: SceneBluep
       const mapEntry: NonNullable<SceneBlueprint['maps']>[number] = {
         id: typeof map.id === 'string' ? map.id : undefined,
         map: mapType,
+        part: typeof map.part === 'string' && map.part.trim() ? map.part.trim() : undefined,
         title: typeof map.title === 'string' ? map.title : undefined,
         brief: typeof map.brief === 'string' ? map.brief : '',
         optional: map.optional === true,
@@ -383,6 +451,63 @@ export function validateBlueprintReport(value: unknown): { blueprint: SceneBluep
   const modelUrl = typeof raw.modelUrl === 'string' ? raw.modelUrl : undefined;
   const uvLayout = normalizeUvLayout(raw.uvLayout);
   const target = ENGINES.includes(raw.target as EngineTarget) ? (raw.target as EngineTarget) : undefined;
+
+  const mapsWithParts = maps.filter((map) => map.part);
+  if (mapsWithParts.length > 0) {
+    if (kind !== 'model') {
+      report.errors.push('Map-"part" ist nur für Modell-Blueprints erlaubt.');
+    }
+    if (mapsWithParts.length !== maps.length) {
+      report.errors.push('Bei Modellteil-Tickets muss jede Map genau einem "part" zugeordnet sein.');
+    }
+    if (!uvLayout?.length) {
+      report.errors.push('Modellteil-Tickets benötigen ein "uvLayout" mit einem Bereich pro Teil.');
+    } else {
+      const layoutByName = new Map<string, UvIsland>();
+      for (const island of uvLayout) {
+        if (layoutByName.has(island.name)) {
+          report.errors.push(`Der uvLayout-Name "${island.name}" ist mehrfach vorhanden.`);
+        }
+        if (island.x < 0 || island.y < 0 || island.x + island.w > 1 || island.y + island.h > 1) {
+          report.errors.push(`UV-Bereich "${island.name}" muss vollständig innerhalb des 0–1-Atlas liegen.`);
+        }
+        layoutByName.set(island.name, island);
+      }
+      const seenPartMaps = new Set<string>();
+      for (const map of mapsWithParts) {
+        const island = layoutByName.get(map.part!);
+        if (!island) {
+          report.errors.push(`Map "${map.map}": part "${map.part}" fehlt im uvLayout.`);
+          continue;
+        }
+        const key = `${map.part}:${map.map}`;
+        if (seenPartMaps.has(key)) {
+          report.errors.push(`Map "${map.map}" ist für Teil "${map.part}" mehrfach vorhanden.`);
+        }
+        seenPartMaps.add(key);
+
+        if (mesh) {
+          const meshPart = mesh.parts.find((part) => part.name === map.part);
+          if (!meshPart) {
+            report.errors.push(`UV-Bereich "${map.part}" benötigt ein gleichnamiges mesh.parts[].name.`);
+            continue;
+          }
+          const [x, y, width, height] = meshPart.uv;
+          if (
+            Math.abs(x - island.x) > 0.001 ||
+            Math.abs(y - island.y) > 0.001 ||
+            Math.abs(width - island.w) > 0.001 ||
+            Math.abs(height - island.h) > 0.001
+          ) {
+            report.errors.push(`UV-Bereich "${map.part}" muss mit dem uv-Rechteck seines Mesh-Teils übereinstimmen.`);
+          }
+        }
+      }
+      if (modelUrl && !mesh) {
+        report.warnings.push('Bei einem Modellteil-Blueprint müssen die Mesh-Namen im GLB exakt zu uvLayout und Map-"part" passen.');
+      }
+    }
+  }
 
   if (kind === 'model') {
     if (!target) report.warnings.push('Modell ohne "target" (unreal|unity|gltf).');

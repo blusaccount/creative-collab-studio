@@ -102,8 +102,8 @@ The app is a fully client-side workspace with no backend. Projects and tickets a
 This is the core loop the tool is built around:
 
 1. **AI plans the scene** — a scene blueprint (`src/data/dungeonScene.ts`, or any imported JSON) describes a location and its full asset list: titles, types, dimensions, paint briefs and a layout slot for each piece.
-2. **Tickets are generated** — importing a blueprint creates one ticket per required asset, grouped under the scene.
-3. **The artist paints** — each ticket opens in the drawing workspace; completing it feeds the scene.
+2. **Tickets are generated** — scene blueprints create one ticket per asset. For models with independently paintable parts, the AI blueprint must define a matching named UV region and mesh part, then assign every map to that part; import validation rejects incomplete or inconsistent mappings. The builder creates one ticket per part in the same model group and keeps that part's material maps together as channels. Simple models that cannot be meaningfully split remain one ticket.
+3. **The artist paints** — regular tickets open in the drawing workspace. A model-part ticket shows its focused UV canvas, a live full-model preview and a preview of the selected part. Paint the active material channel either on the UV canvas or directly on the 3D model. Scalar channels such as Roughness and Metallic use a brush-value control instead of requiring a color choice.
 4. **The scene assembles** — the **Scene** board composites every completed asset into its layout slot in real time, tracks progress, and marks the scene finished when all assets are committed.
 5. **Delivery** — export the finished scene composite as a PNG, or export the whole blueprint back out as JSON.
 

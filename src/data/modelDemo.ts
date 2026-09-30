@@ -444,7 +444,7 @@ function paintEmissive(ctx: CanvasRenderingContext2D, role: Role, rect: Rect): v
 }
 
 /** Paints one example map with the same ops a human would use. */
-export function generateKnightMapDataUrl(mapType: MapType, size = 1024): string {
+export function generateKnightMapDataUrl(mapType: MapType, size = 1024, partName?: string): string {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -461,6 +461,7 @@ export function generateKnightMapDataUrl(mapType: MapType, size = 1024): string 
   ctx.fillRect(0, 0, size, size);
 
   PLAYER_KNIGHT_UV.forEach((island, index) => {
+    if (partName && island.name !== partName) return;
     const rect: Rect = { x: island.x * size, y: island.y * size, w: island.w * size, h: island.h * size };
     const role = roleFor(island.name);
     const seed = 1000 + index * 97;
@@ -473,7 +474,26 @@ export function generateKnightMapDataUrl(mapType: MapType, size = 1024): string 
     else if (mapType === 'emissive') paintEmissive(ctx, role, rect);
   });
 
-  return canvas.toDataURL('image/png');
+  if (!partName) return canvas.toDataURL('image/png');
+  const island = PLAYER_KNIGHT_UV.find((entry) => entry.name === partName);
+  if (!island) return canvas.toDataURL('image/png');
+  const partCanvas = document.createElement('canvas');
+  partCanvas.width = Math.max(1, Math.round(size * island.w));
+  partCanvas.height = Math.max(1, Math.round(size * island.h));
+  const partContext = partCanvas.getContext('2d');
+  if (!partContext) return '';
+  partContext.drawImage(
+    canvas,
+    island.x * size,
+    island.y * size,
+    island.w * size,
+    island.h * size,
+    0,
+    0,
+    partCanvas.width,
+    partCanvas.height,
+  );
+  return partCanvas.toDataURL('image/png');
 }
 
 /** Built-in example case: a character model that needs a full PBR texture set. */
@@ -490,14 +510,16 @@ export function getPlayerKnightBlueprint(): SceneBlueprint {
     uvLayout: PLAYER_KNIGHT_UV,
     uvTemplate: createUvTemplate(PLAYER_KNIGHT_UV),
     mesh: buildKnightMesh(),
-    maps: [
-      { map: 'basecolor', brief: 'Farben pro Insel (Helm, Brustplatte + Rock, Ärmel/Handschuh, Hose/Stiefel, Umhang). Oben an jeder Insel ist „oben" am Körper. Zuerst Volumen (Verlauf), dann Details.' },
-      { map: 'normal', brief: 'Relief: Bevels an Platten-/Materialkanten, Nieten als Bumps, Falten. Grundton flach #8080ff.' },
-      { map: 'roughness', brief: 'Graustufen: Stahl glänzend (dunkel), Stoff/Leder matt (hell). Kratzer an denselben Stellen wie im BaseColor.' },
-      { map: 'metallic', brief: 'Harte Schwarz/Weiß-Maske: weiß = Stahl/Nieten/Schließe, schwarz = Stoff/Leder/Haut.' },
-      { map: 'ao', brief: 'Nur Kontaktzonen abdunkeln: Hals, Gürtel, Stiefelrand, Falten. Überwiegend weiß.' },
-      { map: 'emissive', brief: 'Schwarz, außer glühende Runen am Umhang (kaltes Blau).', optional: true },
-    ],
+    maps: PLAYER_KNIGHT_UV.flatMap((island) => [
+      { part: island.name, map: 'basecolor' as const, brief: `Farben und Details für ${island.name}.` },
+      { part: island.name, map: 'normal' as const, brief: `Relief für ${island.name}: Bevels, Nieten und Falten. Grundton #8080ff.` },
+      { part: island.name, map: 'roughness' as const, brief: `Rauheit für ${island.name}: Stahl glänzend (dunkel), Stoff/Leder matt (hell).` },
+      { part: island.name, map: 'metallic' as const, brief: `Metallanteil für ${island.name}: Stahl/Nieten weiß, Stoff/Leder/Haut schwarz.` },
+      { part: island.name, map: 'ao' as const, brief: `Kontakt-Schatten für ${island.name}; überwiegend weiß.` },
+      ...(island.name === 'CAPE'
+        ? [{ part: island.name, map: 'emissive' as const, brief: 'Schwarz, außer den glühenden Runen am Umhang.' }]
+        : []),
+    ]),
   };
 }
 

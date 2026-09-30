@@ -175,11 +175,29 @@ function App() {
   };
 
   const paintTicket = (ticket: Ticket, uvTemplate?: string) => {
-    const paint = generateKnightMapDataUrl(ticket.mapType ?? 'basecolor', 1024);
+    const paintMap = ticket.mapType ?? 'basecolor';
+    const partName = ticket.modelPart?.name;
+    const paint = generateKnightMapDataUrl(paintMap, 1024, partName);
     const layers = ticket.layers.map((layer) =>
-      layer.kind === 'reference' ? { ...layer, dataUrl: uvTemplate ?? '' } : { ...layer, dataUrl: paint },
+      layer.kind === 'reference'
+        ? { ...layer, dataUrl: partName ? layer.dataUrl : uvTemplate ?? '' }
+        : { ...layer, dataUrl: paint },
     );
-    return { layers, status: 'complete' as const, completedAt: Date.now() };
+    const materialMapLayers = ticket.materialChannels?.length
+      ? Object.fromEntries(
+          ticket.materialChannels
+            .filter((channel) => channel.map !== 'basecolor')
+            .map((channel) => [
+              channel.map,
+              ticket.layers.map((layer) =>
+                layer.kind === 'reference'
+                  ? { ...layer, dataUrl: partName ? layer.dataUrl : uvTemplate ?? '' }
+                  : { ...layer, dataUrl: generateKnightMapDataUrl(channel.map, 1024, partName) },
+              ),
+            ]),
+        )
+      : ticket.materialMapLayers;
+    return { layers, materialMapLayers, status: 'complete' as const, completedAt: Date.now() };
   };
 
   const handleExportState = async () => {
@@ -423,7 +441,6 @@ function App() {
                   studio.updateScene(activeTicketGroup.id, { modelFile: { name: file.name, dataUrl } }),
                 );
               }}
-              onOpenTicket={(id) => studio.selectTicket(id)}
               settings={studio.settings}
               onUpdateTicket={studio.updateTicket}
               onAddNote={studio.addNote}
