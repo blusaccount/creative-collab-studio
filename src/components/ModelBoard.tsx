@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { EngineTarget, Project, Scene, SceneBlueprint, StudioSettings, Ticket } from '../types';
+import type { EngineTarget, MapType, Project, Scene, SceneBlueprint, StudioSettings, Ticket } from '../types';
 import { t } from '../i18n';
-import { composeTicketBlob, composeTicketThumbnail } from '../drawing/compose';
-import { mapSortIndex } from '../scenes/maps';
+import { composeModelMapCanvas, composeTicketThumbnail } from '../drawing/compose';
+import { trimCanvas } from '../drawing/trim';
+import { mapDefaultBackground, mapSortIndex } from '../scenes/maps';
 import { slugify } from '../utils/naming';
 import { downloadBlob } from '../utils/download';
 import { Icon } from './Icon';
@@ -86,13 +87,20 @@ export function ModelBoard({
     setExporting(true);
     try {
       const base = slugify(activeScene.name);
-      for (const item of items) {
-        const ticket = ticketById.get(item.ticketId);
-        if (!ticket) continue;
-        const blob = await composeTicketBlob(ticket, settings.trimOnExport);
+      const maps = [...new Set(modelTickets.flatMap((ticket) =>
+        ticket.materialChannels?.length
+          ? ticket.materialChannels.map((channel) => channel.map)
+          : ticket.mapType ?? 'other',
+      ))] as MapType[];
+      for (const map of maps) {
+        const canvas = await composeModelMapCanvas(modelTickets, map, activeScene.canvas);
+        if (!canvas) continue;
+        const output = settings.trimOnExport ? trimCanvas(canvas) : canvas;
+        const blob = await new Promise<Blob | null>((resolve) =>
+          output.toBlob((result) => resolve(result), 'image/png'),
+        );
         if (!blob) continue;
-        const mapName = ticket.mapType ? ticket.mapType : slugify(ticket.title);
-        downloadBlob(blob, `${base}_${mapName}.png`);
+        downloadBlob(blob, `${base}_${map}.png`);
         await new Promise((resolve) => setTimeout(resolve, 180));
       }
       notify(t('toast.exported'), 'success');
@@ -116,14 +124,25 @@ export function ModelBoard({
       modelUrl: activeScene.modelFile?.url,
       modelName: activeScene.modelFile?.name,
       canvas: activeScene.canvas,
-      maps: items.map((item) => {
+      maps: items.flatMap((item) => {
         const ticket = ticketById.get(item.ticketId);
-        return {
-          map: ticket?.mapType ?? 'other',
-          title: ticket?.title,
-          brief: ticket?.description ?? '',
-          dimensions: ticket?.dimensions,
-        };
+        if (!ticket) return [];
+        if (ticket.materialChannels?.length) {
+          return ticket.materialChannels.map((channel) => ({
+            ...channel,
+            part: ticket.modelPart?.name ?? channel.part,
+            dimensions: ticket.modelPart ? activeScene.canvas : ticket.dimensions,
+            background: channel.background ?? mapDefaultBackground(channel.map),
+          }));
+        }
+        return [{
+          map: ticket.mapType ?? 'other',
+          part: ticket.modelPart?.name,
+          title: ticket.title,
+          brief: ticket.description,
+          dimensions: ticket.dimensions,
+          background: mapDefaultBackground(ticket.mapType ?? 'other'),
+        }];
       }),
     };
     const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: 'application/json' });
@@ -227,14 +246,11 @@ export function ModelBoard({
                   </button>
                   <div className="asset-info">
                     <div className="ticket-row">
-                      <span className="asset-title">
-                        {ticket.mapType ? t(`map.${ticket.mapType}` as const) : ticket.title}
-                      </span>
+                      <span className="asset-title">{ticket.modelPart?.name ?? ticket.title}</span>
                       <span className={`status ${ticket.status}`}>{t(`status.${ticket.status}` as const)}</span>
                     </div>
                     <p className="ticket-meta">
-                      {ticket.dimensions.width}×{ticket.dimensions.height} ·{' '}
-                      {ticket.mapType ? t(`map.${ticket.mapType}` as const) : ''}
+                      {ticket.dimensions.width}×{ticket.dimensions.height}
                     </p>
                     <div className="asset-card-actions">
                       <button className="mini-button" onClick={() => onOpenTicket(ticket.id)}>
@@ -297,7 +313,6 @@ export function ModelBoard({
             <h3>{t('model.preview')}</h3>
           </div>
           <ModelPreview scene={activeScene} tickets={modelTickets} onAttachModel={onModelFile} />
-          <p className="side-hint">{t('model.previewHint')}</p>
 
           <input
             ref={uvInputRef}

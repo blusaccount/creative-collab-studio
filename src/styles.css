@@ -364,7 +364,7 @@ textarea {
     grid-template-columns: 300px minmax(0, 1fr);
   }
   .editor-panel.with-preview {
-    grid-template-columns: 300px minmax(0, 1fr) 320px;
+    grid-template-columns: 300px minmax(0, 1fr) var(--editor-preview-width, 320px);
   }
 }
 @media (max-width: 1360px) {
@@ -375,7 +375,7 @@ textarea {
     grid-template-columns: 260px minmax(0, 1fr);
   }
   .editor-panel.with-preview {
-    grid-template-columns: 260px minmax(0, 1fr) 280px;
+    grid-template-columns: 260px minmax(0, 1fr) var(--editor-preview-width, 280px);
   }
 }
 .model-preview-wrap {
@@ -396,7 +396,11 @@ textarea {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.model-preview-spacer {
+  flex: 1;
+}
 .model-preview {
+  position: relative;
   width: 100%;
   height: 240px;
   border: 1px solid var(--border);
@@ -408,6 +412,38 @@ textarea {
   display: block;
   width: 100% !important;
   height: 100% !important;
+}
+.model-preview.painting {
+  cursor: crosshair;
+  touch-action: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.model-preview.painting canvas {
+  pointer-events: none;
+}
+.model-paint-indicator {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  left: 8px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.model-paint-cursor {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111827;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 .model-preview-empty {
   display: flex;
@@ -424,6 +460,45 @@ textarea {
   color: var(--text-dim);
   max-width: 250px;
   line-height: 1.45;
+}
+.model-map-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 5px;
+}
+.model-map-controls h4 {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.model-map-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.model-map-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.model-map-toggle:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.model-map-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 .uv-preview {
   width: 100%;
@@ -776,7 +851,7 @@ textarea:focus {
   grid-row: 3;
 }
 .editor-panel.with-preview {
-  grid-template-columns: 340px minmax(0, 1fr) 380px;
+  grid-template-columns: 340px minmax(0, 1fr) var(--editor-preview-width, 380px);
 }
 .editor-panel > .editor-preview-col {
   grid-column: 3;
@@ -788,15 +863,52 @@ textarea:focus {
   gap: 10px;
   padding: 14px;
   min-height: 0;
+  overflow: auto;
+  position: relative;
 }
-.editor-preview-col .model-preview-wrap {
-  flex: 1;
-  min-height: 0;
+.editor-preview-resizer {
+  grid-column: 3;
+  grid-row: 1 / -1;
+  z-index: 2;
+  width: 9px;
+  justify-self: start;
+  margin-left: -5px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.editor-preview-resizer::after {
+  content: "";
+  display: block;
+  width: 2px;
+  height: 100%;
+  margin-left: 3px;
+  background: transparent;
+}
+.editor-preview-resizer:hover::after,
+.editor-preview-resizer:focus-visible::after {
+  background: var(--accent);
+}
+.editor-preview-col > .model-preview-wrap {
+  flex: 1 1 400px;
+  max-height: min(48vh, 560px);
+  min-height: 300px;
 }
 .editor-preview-col .model-preview {
   flex: 1;
   min-height: 0;
   height: auto;
+}
+.part-model-preview {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.part-model-preview .model-preview-wrap {
+  min-height: 0;
+}
+.part-model-preview .model-preview {
+  flex: none;
+  height: 220px;
 }
 .editor-panel.empty {
   display: flex;
@@ -1024,6 +1136,72 @@ input[type='range']::-webkit-slider-thumb {
   position: absolute;
   inset: 0;
 }
+.stage-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.material-paint-controls {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.material-channel-buttons,
+.material-paint-options,
+.material-surface-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.material-value {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.material-value input {
+  width: 110px;
+}
+.material-value output {
+  min-width: 32px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.stage-wrap.material-mode .canvas-stage {
+  top: 50px;
+}
+.stage-wrap.painting-model .canvas-stage {
+  display: none;
+}
+.canvas-model-view {
+  position: absolute;
+  inset: 50px 0 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  background:
+    radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent-soft) 62%, transparent), transparent 68%),
+    var(--canvas-bg);
+}
+.canvas-model-view > .model-preview-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.canvas-model-view .model-preview {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
 
 .stage-canvas {
   display: block;
@@ -1128,6 +1306,23 @@ input[type='range']::-webkit-slider-thumb {
   font-size: 12px;
   color: var(--text-dim);
   line-height: 1.5;
+}
+.map-guidance .map-chip {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+.map-guidance .map-cs {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.map-guidance-copy {
+  color: var(--text);
+  font-size: 13px;
 }
 .external-actions {
   display: flex;

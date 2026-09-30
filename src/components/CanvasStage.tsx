@@ -10,6 +10,7 @@ interface CanvasStageProps {
   settings: ToolSettings;
   onPickColor: (color: string, secondary: boolean) => void;
   onCommit: () => void;
+  onLiveUpdate?: () => void;
   onCursorMove?: (position: { x: number; y: number } | null) => void;
   fitNonce: number;
 }
@@ -31,6 +32,7 @@ export function CanvasStage({
   settings,
   onPickColor,
   onCommit,
+  onLiveUpdate,
   onCursorMove,
   fitNonce,
 }: CanvasStageProps) {
@@ -235,6 +237,7 @@ export function CanvasStage({
     strokeSecondaryRef.current = secondary;
     engine.beginStroke(strokeSettings(secondary), x, y);
     paint();
+    onLiveUpdate?.();
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -263,6 +266,7 @@ export function CanvasStage({
     const { x, y } = toArtboard(event.clientX, event.clientY);
     engine.moveStroke(strokeSettings(strokeSecondaryRef.current), x, y);
     paint();
+    onLiveUpdate?.();
   };
 
   const finish = () => {

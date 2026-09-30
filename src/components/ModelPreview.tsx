@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import type { MapType, MeshSpec, Scene, Ticket, UvIsland } from '../types';
-import { composeTicketCanvas } from '../drawing/compose';
+import type { MapType, MeshSpec, Scene, Ticket, ToolSettings, UvIsland } from '../types';
+import { composeModelMapCanvas, modelMapFallbackColor } from '../drawing/compose';
+import { MAP_TYPES } from '../scenes/maps';
 import { t } from '../i18n';
 import { Icon } from './Icon';
 
@@ -27,17 +28,30 @@ interface PreviewState {
   defaultMesh: THREE.Mesh;
   modelRoot: THREE.Group | null;
   textures: THREE.Texture[];
-  basicMaterials: THREE.Material[];
   standardMaterials: Map<THREE.Mesh, THREE.MeshStandardMaterial>;
   tickets: Ticket[];
+  sceneDimensions: { width: number; height: number };
   flipY: boolean;
   token: number;
-  viewMode: 'full' | MapType;
+  visibleMaps: Set<MapType>;
+  liveMap?: MapType;
+  liveCanvas?: HTMLCanvasElement;
+  liveTicketId?: string;
+  livePart?: UvIsland;
+  liveTextureCanvas: HTMLCanvasElement | null;
+  liveTextureMap?: MapType;
+  liveVersion?: number;
+  liveTexture: THREE.Texture | null;
 }
 
-export type PreviewViewMode = 'full' | MapType;
-
-const VIEW_MODES: PreviewViewMode[] = ['full', 'basecolor', 'normal', 'roughness', 'metallic', 'ao'];
+interface PaintMode {
+  ticketId: string;
+  partName?: string;
+  settings: ToolSettings;
+  onStart: (uv: { u: number; v: number }) => void;
+  onMove: (uv: { u: number; v: number }) => void;
+  onEnd: () => void;
+}
 
 function canvasHasContent(canvas: HTMLCanvasElement): boolean {
   const probe = document.createElement('canvas');
@@ -56,23 +70,36 @@ function canvasHasContent(canvas: HTMLCanvasElement): boolean {
 async function applyTextures(state: PreviewState): Promise<void> {
   state.textures.forEach((texture) => texture.dispose());
   state.textures = [];
-  state.basicMaterials.forEach((material) => material.dispose());
-  state.basicMaterials = [];
+  state.liveTexture = null;
 
+  const availableMaps = MAP_TYPES.filter((map) =>
+    state.tickets.some((ticket) =>
+      ticket.materialChannels?.some((channel) => channel.map === map) || ticket.mapType === map,
+    ),
+  );
   const byMap: Partial<Record<MapType, THREE.Texture>> = {};
-  for (const ticket of state.tickets) {
-    if (!ticket.mapType) continue;
-    const canvas = await composeTicketCanvas(ticket);
-    if (!canvasHasContent(canvas)) continue;
+  for (const map of availableMaps) {
+    if (!state.visibleMaps.has(map)) continue;
+    const canvas = await composeModelMapCanvas(
+      state.tickets,
+      map,
+      state.sceneDimensions,
+      map === state.liveMap && state.liveCanvas && state.liveTicketId
+        ? { ticketId: state.liveTicketId, canvas: state.liveCanvas }
+        : undefined,
+    );
+    if (!canvas || !canvasHasContent(canvas)) continue;
     const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace =
-      ticket.mapType === 'basecolor' || ticket.mapType === 'emissive'
-        ? THREE.SRGBColorSpace
-        : THREE.NoColorSpace;
+    texture.colorSpace = map === 'basecolor' || map === 'emissive' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     texture.flipY = state.flipY;
     texture.needsUpdate = true;
-    byMap[ticket.mapType] = texture;
+    byMap[map] = texture;
     state.textures.push(texture);
+    if (map === state.liveMap && state.liveCanvas && state.liveTicketId) {
+      state.liveTexture = texture;
+      state.liveTextureCanvas = canvas;
+      state.liveTextureMap = map;
+    }
   }
 
   const meshes: THREE.Mesh[] = [];
@@ -84,8 +111,7 @@ async function applyTextures(state: PreviewState): Promise<void> {
     meshes.push(state.defaultMesh);
   }
 
-  const mode = state.viewMode;
-  state.renderer.toneMapping = mode === 'full' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+  state.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
   for (const mesh of meshes) {
     if (!state.standardMaterials.has(mesh)) {
@@ -94,28 +120,91 @@ async function applyTextures(state: PreviewState): Promise<void> {
         new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0 }),
       );
     }
-    if (mode === 'full') {
-      const material = state.standardMaterials.get(mesh)!;
-      material.map = byMap.basecolor ?? null;
-      material.normalMap = byMap.normal ?? null;
-      material.roughnessMap = byMap.roughness ?? null;
-      material.metalnessMap = byMap.metallic ?? null;
-      material.aoMap = byMap.ao ?? null;
-      material.emissiveMap = byMap.emissive ?? null;
-      material.emissive = new THREE.Color(byMap.emissive ? 0xffffff : 0x000000);
-      material.metalness = byMap.metallic ? 1 : 0;
-      material.roughness = byMap.roughness ? 1 : 0.65;
-      if (byMap.ao && mesh.geometry.attributes.uv && !mesh.geometry.attributes.uv2) {
-        mesh.geometry.setAttribute('uv2', mesh.geometry.attributes.uv);
-      }
-      material.needsUpdate = true;
-      mesh.material = material;
-    } else {
-      const material = new THREE.MeshBasicMaterial({ map: byMap[mode] ?? null });
-      state.basicMaterials.push(material);
-      mesh.material = material;
+    const material = state.standardMaterials.get(mesh)!;
+    material.map = byMap.other ?? byMap.basecolor ?? null;
+    material.normalMap = byMap.normal ?? null;
+    material.roughnessMap = byMap.roughness ?? byMap.packed ?? null;
+    material.metalnessMap = byMap.metallic ?? byMap.packed ?? null;
+    material.aoMap = byMap.ao ?? byMap.packed ?? null;
+    material.emissiveMap = byMap.emissive ?? null;
+    material.emissive = new THREE.Color(byMap.emissive ? 0xffffff : 0x000000);
+    material.metalness = byMap.metallic || byMap.packed ? 1 : 0;
+    material.roughness = byMap.roughness || byMap.packed ? 1 : 0.65;
+    material.alphaMap = byMap.opacity ?? null;
+    material.transparent = Boolean(byMap.opacity);
+    material.displacementMap = byMap.height ?? null;
+    material.displacementScale = byMap.height ? 0.035 : 0;
+    if ((byMap.ao || byMap.packed) && mesh.geometry.attributes.uv && !mesh.geometry.attributes.uv2) {
+      mesh.geometry.setAttribute('uv2', mesh.geometry.attributes.uv);
     }
+    material.needsUpdate = true;
+    mesh.material = material;
   }
+}
+
+function matchingPartMeshes(root: THREE.Object3D, part: string): THREE.Mesh[] {
+  const normalized = part.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const matching: THREE.Mesh[] = [];
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh && mesh.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(normalized)) {
+      matching.push(mesh);
+    }
+  });
+  return matching;
+}
+
+function focusModelPart(state: PreviewState, part?: string): void {
+  const root = state.modelRoot;
+  if (!root) return;
+  root.updateMatrixWorld(true);
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((object) => {
+    if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh);
+  });
+  const matching = part ? matchingPartMeshes(root, part) : [];
+  const hasPartMatch = matching.length > 0;
+  meshes.forEach((mesh) => {
+    mesh.visible = !hasPartMatch || matching.includes(mesh);
+  });
+  if (!hasPartMatch) {
+    state.camera.position.set(0, 0.5, 2.9);
+    state.controls.target.set(0, 0, 0);
+  } else {
+    const bounds = new THREE.Box3().setFromObject(matching[0]);
+    matching.slice(1).forEach((mesh) => bounds.expandByObject(mesh));
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const halfFov = THREE.MathUtils.degToRad(state.camera.fov / 2);
+    const distance = Math.max(
+      1.2,
+      (size.y / 2 / Math.tan(halfFov)) * 1.4,
+      (size.x / 2 / Math.tan(halfFov) / state.camera.aspect) * 1.4,
+      (size.z / 2 / Math.tan(halfFov)) * 1.4,
+    );
+    state.controls.target.copy(center);
+    state.camera.position.set(center.x, center.y, center.z + distance);
+    state.camera.lookAt(center);
+  }
+  state.controls.update();
+}
+
+function updateLiveTexture(state: PreviewState): void {
+  const textureCanvas = state.liveTextureCanvas;
+  const liveCanvas = state.liveCanvas;
+  const map = state.liveTextureMap;
+  if (!textureCanvas || !liveCanvas || !map || !state.liveTicketId) return;
+  const context = textureCanvas.getContext('2d');
+  if (!context) return;
+  const part = state.livePart;
+  const x = part ? Math.round(part.x * textureCanvas.width) : 0;
+  const y = part ? Math.round(part.y * textureCanvas.height) : 0;
+  const width = part ? Math.round(part.w * textureCanvas.width) : textureCanvas.width;
+  const height = part ? Math.round(part.h * textureCanvas.height) : textureCanvas.height;
+  context.fillStyle = modelMapFallbackColor(map);
+  context.fillRect(x, y, width, height);
+  context.drawImage(liveCanvas, 0, 0, liveCanvas.width, liveCanvas.height, x, y, width, height);
+  if (state.liveTexture) state.liveTexture.needsUpdate = true;
 }
 
 function remapGeometryUv(geometry: THREE.BufferGeometry, rect: [number, number, number, number]): void {
@@ -150,6 +239,7 @@ function buildMeshFromSpec(spec: MeshSpec): THREE.Group {
       geometry,
       new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0 }),
     );
+    mesh.name = part.name ?? '';
     if (part.position) mesh.position.set(part.position[0], part.position[1], part.position[2]);
     if (part.rotation) mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2]);
     group.add(mesh);
@@ -165,6 +255,7 @@ function buildProceduralMesh(layout: UvIsland[]): THREE.Group {
     const geometry = new THREE.BoxGeometry(transform.w, transform.h, transform.d);
     remapUvToIsland(geometry, island);
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0 }));
+    mesh.name = island.name;
     mesh.position.set(transform.x, transform.y, transform.z);
     group.add(mesh);
   }
@@ -187,11 +278,37 @@ interface ModelPreviewProps {
   scene: Scene;
   tickets: Ticket[];
   onAttachModel?: (file: File) => void;
+  liveMap?: MapType;
+  liveCanvas?: HTMLCanvasElement;
+  liveTicketId?: string;
+  livePart?: UvIsland;
+  liveVersion?: number;
+  paintMode?: PaintMode;
+  focusPart?: string;
+  showMapControls?: boolean;
 }
 
-export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProps) {
+export function ModelPreview({
+  scene,
+  tickets,
+  onAttachModel,
+  liveMap,
+  liveCanvas,
+  liveTicketId,
+  livePart,
+  liveVersion,
+  paintMode,
+  focusPart,
+  showMapControls = true,
+}: ModelPreviewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const stateRef = useRef<PreviewState | null>(null);
+  const paintModeRef = useRef(paintMode);
+  paintModeRef.current = paintMode;
+  const [paintCursor, setPaintCursor] = useState<{ x: number; y: number } | null>(null);
+  const focusPartRef = useRef(focusPart);
+  focusPartRef.current = focusPart;
+  const paintPointerRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const hasMesh = Boolean(
     scene.modelFile?.dataUrl ||
@@ -199,7 +316,7 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
       (scene.mesh && scene.mesh.parts.length > 0) ||
       (scene.uvLayout && scene.uvLayout.length > 0),
   );
-  const [viewMode, setViewMode] = useState<PreviewViewMode>('full');
+  const [visibleMaps, setVisibleMaps] = useState<Set<MapType>>(() => new Set(MAP_TYPES));
   const [autoRotate, setAutoRotate] = useState(false);
 
   useEffect(() => {
@@ -278,12 +395,19 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
       defaultMesh,
       modelRoot: null,
       textures: [],
-      basicMaterials: [],
       standardMaterials: new Map(),
       tickets,
+      sceneDimensions: scene.canvas,
       flipY: true,
       token: 0,
-      viewMode: 'full',
+      visibleMaps: new Set(MAP_TYPES),
+      liveMap,
+      liveCanvas,
+      liveTicketId,
+      livePart,
+      liveTexture: null,
+      liveTextureCanvas: null,
+      liveTextureMap: undefined,
     };
 
     return () => {
@@ -292,7 +416,6 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
       controls.dispose();
       const state = stateRef.current;
       state?.textures.forEach((texture) => texture.dispose());
-      state?.basicMaterials.forEach((mat) => mat.dispose());
       state?.standardMaterials.forEach((mat) => mat.dispose());
       defaultMesh.geometry.dispose();
       pmrem.dispose();
@@ -308,7 +431,6 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
     const state = stateRef.current;
     if (!state) return;
     state.tickets = tickets;
-    void applyTextures(state);
   }, [tickets]);
 
   useEffect(() => {
@@ -329,6 +451,7 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
       state.modelRoot = fitObject(root);
       state.flipY = flipY;
       state.scene3.add(state.modelRoot);
+      focusModelPart(state, focusPartRef.current);
       void applyTextures(state);
     };
 
@@ -378,10 +501,42 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
 
   useEffect(() => {
     const state = stateRef.current;
+    if (state) focusModelPart(state, focusPart);
+  }, [focusPart]);
+
+  useEffect(() => {
+    const state = stateRef.current;
     if (!state) return;
-    state.viewMode = viewMode;
+    state.visibleMaps = visibleMaps;
     void applyTextures(state);
-  }, [viewMode]);
+  }, [visibleMaps]);
+
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    state.liveMap = liveMap;
+    state.liveCanvas = liveCanvas;
+    state.liveTicketId = liveTicketId;
+    state.livePart = livePart;
+    void applyTextures(state);
+  }, [liveMap, liveCanvas, liveTicketId, livePart, tickets]);
+
+  useEffect(() => {
+    const state = stateRef.current;
+    if (state) updateLiveTexture(state);
+  }, [liveVersion]);
+
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    state.controls.enabled = !paintMode;
+    const canvas = state.renderer.domElement;
+    canvas.style.cursor = paintMode ? 'crosshair' : '';
+    return () => {
+      state.controls.enabled = true;
+      canvas.style.cursor = '';
+    };
+  }, [Boolean(paintMode)]);
 
   useEffect(() => {
     const state = stateRef.current;
@@ -393,9 +548,77 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
   const resetView = () => {
     const state = stateRef.current;
     if (!state) return;
-    state.camera.position.set(0, 0.5, 2.9);
-    state.controls.target.set(0, 0, 0);
-    state.controls.update();
+    focusModelPart(state, focusPart);
+  };
+  const availableMaps = MAP_TYPES.filter((map) =>
+    tickets.some((ticket) =>
+      ticket.materialChannels?.length
+        ? ticket.materialChannels.some((channel) => channel.map === map)
+        : ticket.mapType === map,
+    ),
+  );
+
+  const paintHit = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = stateRef.current;
+    if (!state?.modelRoot) return null;
+    const rect = state.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(pointer, state.camera);
+    const hit = raycaster
+      .intersectObject(state.modelRoot, true)
+      .find((intersection) => intersection.uv && intersection.object.visible);
+    return hit?.uv ? { u: hit.uv.x, v: hit.uv.y } : null;
+  };
+
+  const handlePaintDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const paint = paintModeRef.current;
+    if (!paint) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setPaintCursor({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+    const uv = paintHit(event);
+    if (!uv) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    paintPointerRef.current = true;
+    paint.onStart(uv);
+    const state = stateRef.current;
+    const texture = state?.liveTexture;
+    if (texture) texture.needsUpdate = true;
+    else if (state) void applyTextures(state);
+  };
+
+  const handlePaintMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (paintModeRef.current) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      setPaintCursor({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+    }
+    if (!paintPointerRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const uv = paintHit(event);
+    if (uv) {
+      paintModeRef.current?.onMove(uv);
+      const state = stateRef.current;
+      const texture = state?.liveTexture;
+      if (texture) texture.needsUpdate = true;
+      else if (state) void applyTextures(state);
+    }
+  };
+
+  const handlePaintUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!paintPointerRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    paintPointerRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    paintModeRef.current?.onEnd();
   };
 
   if (!hasMesh) {
@@ -426,15 +649,6 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
   return (
     <div className="model-preview-wrap">
       <div className="model-preview-bar">
-        {VIEW_MODES.map((mode) => (
-          <button
-            key={mode}
-            className={`chip tiny ${viewMode === mode ? 'active' : ''}`}
-            onClick={() => setViewMode(mode)}
-          >
-            {mode === 'full' ? t('model.viewFull') : t(`map.${mode}` as const)}
-          </button>
-        ))}
         <span className="model-preview-spacer" />
         <button className="icon-button tight" title={t('model.resetView')} aria-label={t('model.resetView')} onClick={resetView}>
           <Icon name="fit" size={13} />
@@ -448,7 +662,65 @@ export function ModelPreview({ scene, tickets, onAttachModel }: ModelPreviewProp
           <Icon name="reset" size={13} />
         </button>
       </div>
-      <div className="model-preview" ref={mountRef} />
+      <div
+        className={`model-preview ${paintMode ? 'painting' : ''}`}
+        data-paint-ticket={paintMode?.ticketId}
+        aria-label={paintMode ? t('material.3dModel') : undefined}
+        ref={mountRef}
+        onPointerLeave={() => {
+          if (!paintPointerRef.current) setPaintCursor(null);
+        }}
+        onPointerDownCapture={handlePaintDown}
+        onPointerMoveCapture={handlePaintMove}
+        onPointerUpCapture={handlePaintUp}
+        onPointerCancelCapture={handlePaintUp}
+        onLostPointerCapture={handlePaintUp}
+      >
+        {paintMode ? (
+          <>
+            <span className="model-paint-indicator">
+              {t('material.paintingOnModel', { part: paintMode.partName ?? t('material.wholeModel') })}
+            </span>
+            {paintCursor ? (
+              <span
+                className="model-paint-cursor"
+                aria-hidden="true"
+                style={{
+                  left: paintCursor.x,
+                  top: paintCursor.y,
+                  width: Math.max(14, Math.min(40, paintMode.settings.size * 2 + 8)),
+                  height: Math.max(14, Math.min(40, paintMode.settings.size * 2 + 8)),
+                  borderColor: paintMode.settings.color,
+                }}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </div>
+      {showMapControls && availableMaps.length > 0 ? (
+        <section className="model-map-controls" aria-label={t('model.visibleMaps')}>
+          <h4>{t('model.visibleMaps')}</h4>
+          <div className="model-map-toggle-list">
+            {availableMaps.map((map) => (
+              <label key={map} className="model-map-toggle">
+                <input
+                  type="checkbox"
+                  checked={visibleMaps.has(map)}
+                  onChange={() =>
+                    setVisibleMaps((current) => {
+                      const next = new Set(current);
+                      if (next.has(map)) next.delete(map);
+                      else next.add(map);
+                      return next;
+                    })
+                  }
+                />
+                <span>{t(`map.${map}` as const)}</span>
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

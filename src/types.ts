@@ -38,6 +38,12 @@ export interface Ticket {
   sceneId?: string;
   /** 3D texture map type when the ticket belongs to a model set. */
   mapType?: MapType;
+  /** Maps managed together on one model ticket instead of as separate tickets. */
+  materialChannels?: SceneBlueprintMap[];
+  /** Paint layers for non-basecolor material channels. BaseColor uses `layers`. */
+  materialMapLayers?: Partial<Record<MapType, LayerState[]>>;
+  /** The UV region represented by this model-part ticket, in the group's atlas space. */
+  modelPart?: UvIsland;
   title: string;
   description: string;
   type: TicketType;
@@ -178,6 +184,8 @@ export interface SceneBlueprintAsset {
 export interface SceneBlueprintMap {
   id?: string;
   map: MapType;
+  /** Optional mesh/UV-island name; matching channels become a separate part ticket. */
+  part?: string;
   title?: string;
   brief?: string;
   optional?: boolean;
