@@ -28,7 +28,7 @@ export async function buildProjectState(
 
   const ticketDocs: Array<Record<string, unknown>> = [];
   for (const ticket of projectTickets) {
-    let thumbnailDataUrl = '';
+    let thumbnailDataUrl: string;
     try {
       thumbnailDataUrl = await composeTicketThumbnail(ticket, 256);
     } catch {

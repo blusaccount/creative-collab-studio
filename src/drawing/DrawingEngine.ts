@@ -824,7 +824,7 @@ export class DrawingEngine {
 
     while (stack.length) {
       const py = stack.pop()!;
-      let px = stack.pop()!;
+      const px = stack.pop()!;
       if (visited[py * this.width + px]) continue;
 
       let left = px;

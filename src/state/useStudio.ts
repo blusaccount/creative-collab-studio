@@ -471,10 +471,12 @@ export function useStudio() {
     [],
   );
 
+  const clearError = useCallback(() => setError(null), []);
+
   return {
     loading,
     error,
-    clearError: () => setError(null),
+    clearError,
     projects,
     tickets,
     projectTickets,

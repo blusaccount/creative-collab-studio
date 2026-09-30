@@ -20,6 +20,7 @@ import { DUNGEON_ENTRANCE_BLUEPRINT } from './data/dungeonScene';
 import { generateKnightMapDataUrl, getPlayerKnightBlueprint, getPlayerKnightPaintedBlueprint } from './data/modelDemo';
 import { composeTicketBlob } from './drawing/compose';
 import { buildAssetFilename, slugify } from './utils/naming';
+import { hashLayers } from './utils/hash';
 import { buildProjectState } from './scenes/serialize';
 import { downloadBlob } from './utils/download';
 import { readFileAsDataUrl } from './utils/psd';
@@ -66,12 +67,14 @@ function App() {
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3800);
   }, []);
 
+  const studioError = studio.error;
+  const clearStudioError = studio.clearError;
   useEffect(() => {
-    if (studio.error) {
-      notify(studio.error, 'error');
-      studio.clearError();
+    if (studioError) {
+      notify(studioError, 'error');
+      clearStudioError();
     }
-  }, [studio, notify]);
+  }, [studioError, clearStudioError, notify]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = studio.settings.theme;
@@ -137,7 +140,10 @@ function App() {
         return;
       }
       downloadBlob(blob, buildAssetFilename(ticket, studio.activeProject, studio.settings));
-      await studio.updateTicket(ticket.id, { version: ticket.version + 1 });
+      // Only bump the version when the exported artwork actually changed.
+      const exportHash = hashLayers(ticket.layers);
+      const version = exportHash === ticket.lastExportHash ? ticket.version : ticket.version + 1;
+      await studio.updateTicket(ticket.id, { version, lastExportHash: exportHash }, { touch: false });
       notify(t('toast.exported'), 'success');
     } catch (error) {
       notify(error instanceof Error ? error.message : t('toast.exportFailed'), 'error');
@@ -248,7 +254,10 @@ function App() {
   };
 
   const handleImportBlueprint = (blueprint: SceneBlueprint) => {
-    if (studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
+    // A blueprint whose id matches an existing scene is an update (upsert), so it
+    // may share the name. Only block genuinely new plans that clash by name.
+    const updatesExisting = Boolean(blueprint.id && studio.scenes.some((scene) => scene.id === blueprint.id));
+    if (!updatesExisting && studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
       notify(t('toast.groupExists'), 'info');
       return;
     }
