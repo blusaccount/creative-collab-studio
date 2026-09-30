@@ -10,6 +10,7 @@ import { Icon } from './Icon';
 interface AssetLibraryProps {
   project: Project | null;
   tickets: Ticket[];
+  groupFilter: string | 'all';
   settings: StudioSettings;
   onOpenTicket: (id: string) => void;
   onExportTicket: (ticket: Ticket) => void;
@@ -21,6 +22,7 @@ type SortKey = 'updated' | 'created' | 'title' | 'type';
 export function AssetLibrary({
   project,
   tickets,
+  groupFilter,
   settings,
   onOpenTicket,
   onExportTicket,
@@ -38,6 +40,7 @@ export function AssetLibrary({
 
   const visible = useMemo(() => {
     let list = [...tickets];
+    if (groupFilter !== 'all') list = list.filter((ticket) => ticket.sceneId === groupFilter);
     if (statusFilter === 'complete') list = list.filter((ticket) => ticket.status === 'complete');
     else if (statusFilter === 'review-ready')
       list = list.filter((ticket) => ticket.status === 'complete' || ticket.status === 'review-ready');
@@ -49,7 +52,7 @@ export function AssetLibrary({
     else if (sortKey === 'title') list.sort((a, b) => a.title.localeCompare(b.title));
     else list.sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));
     return list;
-  }, [tickets, statusFilter, typeFilter, search, sortKey]);
+  }, [tickets, groupFilter, statusFilter, typeFilter, search, sortKey]);
 
   useEffect(() => {
     let cancelled = false;

@@ -1,6 +1,85 @@
-import type { BackgroundKind, Scene, SceneBlueprint, Ticket, TicketStatus, TicketType } from '../types';
+import type {
+  BackgroundKind,
+  EngineTarget,
+  MapType,
+  Scene,
+  SceneBlueprint,
+  BlueprintReference,
+  MeshPart,
+  MeshSpec,
+  SetKind,
+  Ticket,
+  TicketStatus,
+  TicketType,
+  UvIsland,
+} from '../types';
 import { createDefaultLayerStates } from '../drawing/factory';
 import { createId } from '../utils/id';
+import { t } from '../i18n';
+import { mapDefaultBackground, MAP_TYPES } from './maps';
+
+const MAX_DIMENSION = 8192;
+
+function clampDimension(value: number): number {
+  return Math.max(1, Math.min(MAX_DIMENSION, Math.round(value)));
+}
+
+const DEFAULT_MODEL_CANVAS = { width: 2048, height: 2048, background: '#0b0d12' };
+
+const MAP_TITLES: Record<MapType, string> = {
+  basecolor: 'BaseColor',
+  normal: 'Normal',
+  roughness: 'Roughness',
+  metallic: 'Metallic',
+  ao: 'AO',
+  emissive: 'Emissive',
+  opacity: 'Opacity',
+  height: 'Height',
+  packed: 'ORM',
+  other: 'Map',
+};
+
+interface BuiltEntry {
+  id?: string;
+  title: string;
+  type: TicketType;
+  status: TicketStatus;
+  map?: MapType;
+  dimensions: { width: number; height: number };
+  background: BackgroundKind;
+  brief: string;
+  layout: { x: number; y: number; width: number; height: number; layer: number };
+}
+
+function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
+  const size = blueprint.canvas ?? { width: 512, height: 512, background: '#ffffff' };
+
+  if (blueprint.maps && blueprint.maps.length > 0) {
+    return blueprint.maps.map((map, index) => ({
+      id: map.id,
+      title: map.title ?? `${MAP_TITLES[map.map] ?? 'Map'}`,
+      type: 'texture' as TicketType,
+      status: 'backlog' as TicketStatus,
+      map: map.map,
+      dimensions: map.dimensions ?? { width: size.width, height: size.height },
+      background: map.background ?? mapDefaultBackground(map.map),
+      brief: map.brief ?? '',
+      layout: { x: 0, y: 0, width: size.width, height: size.height, layer: index },
+    }));
+  }
+
+  return (blueprint.assets ?? []).map((asset) => ({
+    id: asset.id,
+    title: asset.title,
+    type: asset.type,
+    status: asset.status ?? 'backlog',
+    map: asset.map,
+    dimensions: asset.dimensions,
+    background: asset.background,
+    brief: asset.brief,
+    layout: asset.layout,
+  }));
+}
 
 export function buildSceneFromBlueprint(
   blueprint: SceneBlueprint,
@@ -10,21 +89,28 @@ export function buildSceneFromBlueprint(
 ): { scene: Scene; tickets: Ticket[] } {
   const sceneId = createId('scene');
   const tickets: Ticket[] = [];
+  const entries = entriesFromBlueprint(blueprint);
 
-  const items = blueprint.assets.map((asset, index) => {
+  const items = entries.map((entry, index) => {
     const ticket: Ticket = {
-      id: createId('ticket'),
+      id: entry.id ?? createId('ticket'),
       projectId,
       sceneId,
-      title: asset.title,
-      description: asset.brief,
-      type: asset.type,
-      status: asset.status ?? 'backlog',
-      dimensions: asset.dimensions,
+      mapType: entry.map,
+      title: entry.title,
+      description: entry.brief,
+      type: entry.type,
+      status: entry.status,
+      dimensions: entry.dimensions,
       order: baseOrder + index,
       notes: [],
-      layers: createDefaultLayerStates(),
-      background: asset.background,
+      layers: entry.map
+        ? createDefaultLayerStates({
+            paintName: `Paint – ${MAP_TITLES[entry.map] ?? 'Map'}`,
+            referenceName: 'UV – Reference',
+          })
+        : createDefaultLayerStates(),
+      background: entry.background,
       version: 1,
       createdAt: now + index,
       updatedAt: now + index,
@@ -33,23 +119,31 @@ export function buildSceneFromBlueprint(
     return {
       id: createId('item'),
       ticketId: ticket.id,
-      label: asset.title,
-      x: asset.layout.x,
-      y: asset.layout.y,
-      width: asset.layout.width,
-      height: asset.layout.height,
-      layer: asset.layout.layer,
+      label: entry.title,
+      x: entry.layout.x,
+      y: entry.layout.y,
+      width: entry.layout.width,
+      height: entry.layout.height,
+      layer: entry.layout.layer,
     };
   });
 
   const scene: Scene = {
-    id: sceneId,
+    id: blueprint.id ?? sceneId,
     projectId,
+    kind: blueprint.kind ?? 'scene',
     name: blueprint.name,
     description: blueprint.description,
     artDirection: blueprint.artDirection,
-    canvas: blueprint.canvas,
+    canvas: blueprint.canvas ?? (blueprint.kind === 'model' ? DEFAULT_MODEL_CANVAS : { width: 960, height: 540, background: '#0b0d12' }),
     items,
+    target: blueprint.target,
+    uvTemplate: blueprint.uvTemplate,
+    uvLayout: blueprint.uvLayout,
+    mesh: blueprint.mesh,
+    modelFile: blueprint.modelUrl
+      ? { name: blueprint.modelName ?? 'model.glb', url: blueprint.modelUrl }
+      : undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -60,69 +154,265 @@ export function buildSceneFromBlueprint(
 const TYPES: TicketType[] = ['texture', 'prop', 'ui', 'concept', 'effect', 'character', 'other'];
 const BACKGROUNDS: BackgroundKind[] = ['white', 'transparent', 'dark', 'paper'];
 const STATUSES: TicketStatus[] = ['backlog', 'in-progress', 'review-ready', 'complete', 'archived'];
+const KINDS: SetKind[] = ['scene', 'model'];
+const ENGINES: EngineTarget[] = ['unreal', 'unity', 'gltf'];
 
 function numberOf(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-/**
- * Best-effort validation of an imported scene blueprint. Returns null when the
- * payload is not a usable production plan, otherwise a normalized blueprint.
- */
-export function validateBlueprint(value: unknown): SceneBlueprint | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (!Array.isArray(raw.assets) || raw.assets.length === 0) return null;
+const SHAPES: MeshPart['shape'][] = ['box', 'cylinder', 'sphere'];
 
-  const canvasRaw = (raw.canvas ?? {}) as Record<string, unknown>;
-  const canvas = {
-    width: Math.max(1, Math.round(numberOf(canvasRaw.width, 960))),
-    height: Math.max(1, Math.round(numberOf(canvasRaw.height, 540))),
-    background: typeof canvasRaw.background === 'string' ? canvasRaw.background : '#0b0d12',
-  };
+function triple(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (Array.isArray(value) && value.length >= 3) {
+    return [numberOf(value[0], fallback[0]), numberOf(value[1], fallback[1]), numberOf(value[2], fallback[2])];
+  }
+  return fallback;
+}
 
-  const assets: SceneBlueprint['assets'] = [];
-  raw.assets.forEach((entry, index) => {
+function normalizeMesh(raw: unknown): MeshSpec | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const partsRaw = (raw as Record<string, unknown>).parts;
+  if (!Array.isArray(partsRaw)) return undefined;
+  const parts: MeshPart[] = [];
+  partsRaw.slice(0, 64).forEach((entry) => {
     if (!entry || typeof entry !== 'object') return;
-    const asset = entry as Record<string, unknown>;
-    const title = typeof asset.title === 'string' && asset.title.trim() ? asset.title.trim() : `Asset ${index + 1}`;
-    const dimsRaw = (asset.dimensions ?? {}) as Record<string, unknown>;
-    const layoutRaw = (asset.layout ?? {}) as Record<string, unknown>;
-    const type = TYPES.includes(asset.type as TicketType) ? (asset.type as TicketType) : 'prop';
-    const background = BACKGROUNDS.includes(asset.background as BackgroundKind)
-      ? (asset.background as BackgroundKind)
-      : 'transparent';
-    const status = STATUSES.includes(asset.status as TicketStatus)
-      ? (asset.status as TicketStatus)
-      : 'backlog';
-
-    assets.push({
-      title,
-      type,
-      status,
-      dimensions: {
-        width: Math.max(1, Math.round(numberOf(dimsRaw.width, canvas.width))),
-        height: Math.max(1, Math.round(numberOf(dimsRaw.height, canvas.height))),
-      },
-      background,
-      brief: typeof asset.brief === 'string' ? asset.brief : '',
-      layout: {
-        x: Math.round(numberOf(layoutRaw.x, 0)),
-        y: Math.round(numberOf(layoutRaw.y, 0)),
-        width: Math.max(1, Math.round(numberOf(layoutRaw.width, dimsRaw.width as number))),
-        height: Math.max(1, Math.round(numberOf(layoutRaw.height, dimsRaw.height as number))),
-        layer: Math.round(numberOf(layoutRaw.layer, index)),
-      },
+    const part = entry as Record<string, unknown>;
+    const shape = SHAPES.includes(part.shape as MeshPart['shape']) ? (part.shape as MeshPart['shape']) : 'box';
+    const uvRaw = Array.isArray(part.uv) ? part.uv : [];
+    parts.push({
+      name: typeof part.name === 'string' ? part.name : undefined,
+      shape,
+      size: triple(part.size, [1, 1, 1]),
+      position: triple(part.position, [0, 0, 0]),
+      rotation: triple(part.rotation, [0, 0, 0]),
+      uv: [
+        numberOf(uvRaw[0], 0),
+        numberOf(uvRaw[1], 0),
+        Math.max(0.01, numberOf(uvRaw[2], 0.2)),
+        Math.max(0.01, numberOf(uvRaw[3], 0.2)),
+      ],
     });
   });
+  return parts.length > 0 ? { parts } : undefined;
+}
 
-  if (assets.length === 0) return null;
+function normalizeUvLayout(raw: unknown): UvIsland[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const islands: UvIsland[] = [];
+  raw.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+    const island = entry as Record<string, unknown>;
+    islands.push({
+      name: typeof island.name === 'string' && island.name.trim() ? island.name.trim() : 'PART',
+      x: numberOf(island.x, 0),
+      y: numberOf(island.y, 0),
+      w: Math.max(0.01, numberOf(island.w, 0.2)),
+      h: Math.max(0.01, numberOf(island.h, 0.2)),
+    });
+  });
+  return islands.length > 0 ? islands : undefined;
+}
 
+function normalizeCanvas(raw: unknown, fallback: { width: number; height: number; background: string }) {
+  const source = (raw ?? {}) as Record<string, unknown>;
   return {
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Imported scene',
+    width: clampDimension(numberOf(source.width, fallback.width)),
+    height: clampDimension(numberOf(source.height, fallback.height)),
+    background: typeof source.background === 'string' ? source.background : fallback.background,
+  };
+}
+
+export interface ValidationReport {
+  errors: string[];
+  warnings: string[];
+}
+
+export const BLUEPRINT_SCHEMA_VERSION = 3;
+
+const PRIORITIES = ['low', 'medium', 'high'] as const;
+
+function normalizeReferences(raw: unknown): BlueprintReference[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: BlueprintReference[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const ref = entry as Record<string, unknown>;
+    out.push({
+      url: typeof ref.url === 'string' ? ref.url : undefined,
+      dataUrl: typeof ref.dataUrl === 'string' ? ref.dataUrl : undefined,
+      caption: typeof ref.caption === 'string' ? ref.caption : undefined,
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/** Validation with a report: errors block the import, warnings allow it. */
+export function validateBlueprintReport(value: unknown): { blueprint: SceneBlueprint | null; report: ValidationReport } {
+  const report: ValidationReport = { errors: [], warnings: [] };
+  if (!value || typeof value !== 'object') {
+    report.errors.push('Kein gültiges JSON-Objekt.');
+    return { blueprint: null, report };
+  }
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.assets) && !Array.isArray(raw.maps)) {
+    report.errors.push('Weder "assets" noch "maps" vorhanden.');
+    return { blueprint: null, report };
+  }
+  if (raw.kind !== undefined && !KINDS.includes(raw.kind as SetKind)) {
+    report.warnings.push(`Unbekanntes "kind" (${String(raw.kind)}) — verwende "scene".`);
+  }
+  if (raw.target !== undefined && !ENGINES.includes(raw.target as EngineTarget)) {
+    report.warnings.push(`Unbekanntes "target" (${String(raw.target)}) — wird ignoriert.`);
+  }
+
+  let kind: SetKind = KINDS.includes(raw.kind as SetKind) ? (raw.kind as SetKind) : 'scene';
+  if (raw.kind === undefined && Array.isArray(raw.maps) && raw.maps.length > 0) kind = 'model';
+
+  const canvas = normalizeCanvas(
+    raw.canvas,
+    kind === 'model' ? { ...DEFAULT_MODEL_CANVAS } : { width: 960, height: 540, background: '#0b0d12' },
+  );
+
+  const assets: SceneBlueprint['assets'] = [];
+  if (Array.isArray(raw.assets)) {
+    raw.assets.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || !(entry as Record<string, unknown>).title) {
+        report.warnings.push(`Asset ${index + 1}: kein "title" — übersprungen.`);
+        return;
+      }
+      const asset = entry as Record<string, unknown>;
+      const title = String(asset.title).trim() || `Asset ${index + 1}`;
+      const dimsRaw = (asset.dimensions ?? {}) as Record<string, unknown>;
+      const layoutRaw = (asset.layout ?? {}) as Record<string, unknown>;
+      if (asset.type !== undefined && !TYPES.includes(asset.type as TicketType)) {
+        report.warnings.push(`"${title}": unbekannter "type" (${String(asset.type)}) — verwende "prop".`);
+      }
+      if (asset.map !== undefined && !MAP_TYPES.includes(asset.map as MapType)) {
+        report.warnings.push(`"${title}": unbekannter "map" (${String(asset.map)}) — wird ignoriert.`);
+      }
+      const type = TYPES.includes(asset.type as TicketType) ? (asset.type as TicketType) : 'prop';
+      const background = BACKGROUNDS.includes(asset.background as BackgroundKind)
+        ? (asset.background as BackgroundKind)
+        : 'transparent';
+      const status = STATUSES.includes(asset.status as TicketStatus)
+        ? (asset.status as TicketStatus)
+        : 'backlog';
+      const map = MAP_TYPES.includes(asset.map as MapType) ? (asset.map as MapType) : undefined;
+      const priority = PRIORITIES.includes(asset.priority as (typeof PRIORITIES)[number])
+        ? (asset.priority as (typeof PRIORITIES)[number])
+        : undefined;
+
+      const assetEntry: NonNullable<SceneBlueprint['assets']>[number] = {
+        id: typeof asset.id === 'string' ? asset.id : undefined,
+        title,
+        type,
+        status,
+        map,
+        priority,
+        purpose: typeof asset.purpose === 'string' ? asset.purpose : undefined,
+        acceptanceCriteria: Array.isArray(asset.acceptanceCriteria)
+          ? asset.acceptanceCriteria.filter((item): item is string => typeof item === 'string')
+          : undefined,
+        references: normalizeReferences(asset.references),
+        dimensions: {
+          width: clampDimension(numberOf(dimsRaw.width, canvas.width)),
+          height: clampDimension(numberOf(dimsRaw.height, canvas.height)),
+        },
+        background,
+        brief: typeof asset.brief === 'string' ? asset.brief : '',
+        layout: {
+          x: Math.round(numberOf(layoutRaw.x, 0)),
+          y: Math.round(numberOf(layoutRaw.y, 0)),
+          width: Math.max(1, Math.round(numberOf(layoutRaw.width, dimsRaw.width as number))),
+          height: Math.max(1, Math.round(numberOf(layoutRaw.height, dimsRaw.height as number))),
+          layer: Math.round(numberOf(layoutRaw.layer, index)),
+        },
+      };
+      assets.push(assetEntry);
+    });
+  }
+
+  const maps: SceneBlueprint['maps'] = [];
+  if (Array.isArray(raw.maps)) {
+    raw.maps.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') return;
+      const map = entry as Record<string, unknown>;
+      if (map.map === undefined || !MAP_TYPES.includes(map.map as MapType)) {
+        report.warnings.push(`Map ${index + 1}: unbekannter "map"-Wert (${String(map.map)}) — verwende "other".`);
+      }
+      const mapType = MAP_TYPES.includes(map.map as MapType) ? (map.map as MapType) : 'other';
+      const dimsRaw = (map.dimensions ?? {}) as Record<string, unknown>;
+      const priority = PRIORITIES.includes(map.priority as (typeof PRIORITIES)[number])
+        ? (map.priority as (typeof PRIORITIES)[number])
+        : undefined;
+      const mapEntry: NonNullable<SceneBlueprint['maps']>[number] = {
+        id: typeof map.id === 'string' ? map.id : undefined,
+        map: mapType,
+        title: typeof map.title === 'string' ? map.title : undefined,
+        brief: typeof map.brief === 'string' ? map.brief : '',
+        optional: map.optional === true,
+        priority,
+        purpose: typeof map.purpose === 'string' ? map.purpose : undefined,
+        acceptanceCriteria: Array.isArray(map.acceptanceCriteria)
+          ? map.acceptanceCriteria.filter((item): item is string => typeof item === 'string')
+          : undefined,
+        references: normalizeReferences(map.references),
+        dimensions: {
+          width: clampDimension(numberOf(dimsRaw.width, canvas.width)),
+          height: clampDimension(numberOf(dimsRaw.height, canvas.height)),
+        },
+        background: BACKGROUNDS.includes(map.background as BackgroundKind)
+          ? (map.background as BackgroundKind)
+          : mapDefaultBackground(mapType),
+      };
+      maps.push(mapEntry);
+    });
+  }
+
+  if (assets.length === 0 && maps.length === 0) {
+    report.errors.push('Keine gültigen Assets/Maps gefunden.');
+    return { blueprint: null, report };
+  }
+  if (assets.length + maps.length > 200) {
+    report.errors.push('Zu viele Einträge (max. 200).');
+    return { blueprint: null, report };
+  }
+
+  const mesh = normalizeMesh(raw.mesh);
+  const modelUrl = typeof raw.modelUrl === 'string' ? raw.modelUrl : undefined;
+  const uvLayout = normalizeUvLayout(raw.uvLayout);
+  const target = ENGINES.includes(raw.target as EngineTarget) ? (raw.target as EngineTarget) : undefined;
+
+  if (kind === 'model') {
+    if (!target) report.warnings.push('Modell ohne "target" (unreal|unity|gltf).');
+    if (!modelUrl && !mesh && !uvLayout) {
+      report.warnings.push('Modell ohne "modelUrl"/"mesh"/"uvLayout" — die 3D-Vorschau bleibt leer.');
+    }
+  }
+
+  const blueprint: SceneBlueprint = {
+    schemaVersion: typeof raw.schemaVersion === 'number' ? raw.schemaVersion : undefined,
+    id: typeof raw.id === 'string' ? raw.id : undefined,
+    action: raw.action === 'create' || raw.action === 'upsert' ? raw.action : undefined,
+    kind,
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : t('fallback.group'),
     description: typeof raw.description === 'string' ? raw.description : '',
     artDirection: typeof raw.artDirection === 'string' ? raw.artDirection : '',
+    target,
+    uvTemplate: typeof raw.uvTemplate === 'string' ? raw.uvTemplate : undefined,
+    uvLayout,
+    mesh,
+    modelUrl,
+    modelName: typeof raw.modelName === 'string' ? raw.modelName : undefined,
     canvas,
     assets,
+    maps,
   };
+  return { blueprint, report };
+}
+
+/** Convenience wrapper returning only the (validated) blueprint. */
+export function validateBlueprint(value: unknown): SceneBlueprint | null {
+  return validateBlueprintReport(value).blueprint;
 }

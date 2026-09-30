@@ -1,4 +1,13 @@
-import type { BackgroundKind, GuideShape, LayerKind, LayerState, ShapePaint, Tool, ToolSettings } from '../types';
+import type {
+  BackgroundKind,
+  GuideShape,
+  LayerKind,
+  LayerState,
+  ShapePaint,
+  Tool,
+  ToolSettings,
+  UvIsland,
+} from '../types';
 import { isShapeTool } from '../types';
 import { hexToRgb, rgbToHex } from '../utils/color';
 import { createId } from '../utils/id';
@@ -53,6 +62,7 @@ export interface RenderView {
   gridSize: number;
   showReferences: boolean;
   guide: GuideShape;
+  showUvOverlay: boolean;
 }
 
 const MAX_HISTORY = 60;
@@ -78,6 +88,7 @@ export class DrawingEngine {
   private strokeDirty = false;
   private strokeLast: Point | null = null;
   private pendingStructureBefore: LayerSnapshot[] | null = null;
+  private uvLayout: UvIsland[] = [];
   private shape: ShapeState | null = null;
   private previewCanvas = document.createElement('canvas');
   private previewCtx = this.previewCanvas.getContext('2d')!;
@@ -393,6 +404,32 @@ export class DrawingEngine {
       activeAfter: this.activeLayerId,
     });
     this.emit();
+  }
+
+  /** Supplies the UV island layout drawn as a non-printing overlay. */
+  setUvLayout(islands: UvIsland[]): void {
+    this.uvLayout = islands;
+    this.emit();
+  }
+
+  /** Loads a shared template (e.g. a UV layout) into a reference layer without history. */
+  async applyReferenceTemplate(dataUrl: string): Promise<void> {
+    const layer = this.layers.find((item) => item.kind === 'reference');
+    if (!layer) return;
+    await this.loadImage(layer.canvas, dataUrl);
+    this.emit();
+  }
+
+  /** Id of the topmost paint layer (used when importing external artwork). */
+  getDrawLayerId(): string | null {
+    return [...this.layers].reverse().find((layer) => layer.kind === 'draw')?.id ?? null;
+  }
+
+  /** Replaces the topmost paint layer with the given image (e.g. a PSD import). */
+  async setDrawLayerImage(dataUrl: string): Promise<void> {
+    const id = this.getDrawLayerId();
+    if (!id) return;
+    await this.setReferenceImage(id, dataUrl);
   }
 
   // --- Drawing ---
@@ -930,6 +967,7 @@ export class DrawingEngine {
 
     if (view.showGrid) this.drawGrid(ctx, view.gridSize);
     if (view.guide && view.guide !== 'none') this.drawGuide(ctx, view.guide);
+    if (view.showUvOverlay && this.uvLayout.length > 0) this.drawUvOverlay(ctx);
 
     ctx.restore();
 
@@ -971,6 +1009,39 @@ export class DrawingEngine {
     }
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  /** Non-printing UV island legend: coloured rects, names and an "up" arrow. */
+  private drawUvOverlay(ctx: CanvasRenderingContext2D): void {
+    const scale = Math.max(0.2, ctx.getTransform().a);
+    const colors = ['#4cc2ff', '#f9a03f', '#8bd450', '#e56b6f', '#b085f5', '#4dd0e1', '#ffd166'];
+    ctx.save();
+    ctx.lineWidth = 1.5 / scale;
+    ctx.font = `${14 / scale}px "Segoe UI", Arial, sans-serif`;
+    ctx.textBaseline = 'top';
+    this.uvLayout.forEach((island, index) => {
+      const x = island.x * this.width;
+      const y = island.y * this.height;
+      const w = island.w * this.width;
+      const h = island.h * this.height;
+      const color = colors[index % colors.length];
+      ctx.fillStyle = `${color}22`;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, w, h);
+      // explicit "up" arrow at the TOP edge of the island
+      const ax = x + w / 2;
+      ctx.beginPath();
+      ctx.moveTo(ax, y + 6 / scale);
+      ctx.lineTo(ax - 6 / scale, y + 16 / scale);
+      ctx.lineTo(ax + 6 / scale, y + 16 / scale);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.fillText(island.name, x + 8 / scale, y + 20 / scale);
+    });
     ctx.restore();
   }
 

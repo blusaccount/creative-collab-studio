@@ -34,8 +34,10 @@ export interface Note {
 export interface Ticket {
   id: string;
   projectId: string;
-  /** Optional scene this ticket belongs to (AI-generated production plan). */
+  /** Optional group (scene or model) this ticket belongs to. */
   sceneId?: string;
+  /** 3D texture map type when the ticket belongs to a model set. */
+  mapType?: MapType;
   title: string;
   description: string;
   type: TicketType;
@@ -64,36 +66,127 @@ export interface SceneItem {
   layer: number;
 }
 
+/** A UV island in normalised (0–1) texture space. */
+export interface UvIsland {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A primitive part of a procedural preview mesh. `uv` = [x, y, w, h] in the texture. */
+export interface MeshPart {
+  name?: string;
+  shape: 'box' | 'cylinder' | 'sphere';
+  size?: [number, number, number];
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  uv: [number, number, number, number];
+}
+
+/** A procedural, file-less model mesh the AI can describe in a blueprint. */
+export interface MeshSpec {
+  parts: MeshPart[];
+}
+
+/** A "group" — either a spatial 2D scene or a 3D model's texture set. */
+export type SetKind = 'scene' | 'model';
+
+export type EngineTarget = 'unreal' | 'unity' | 'gltf';
+
+export type MapType =
+  | 'basecolor'
+  | 'normal'
+  | 'roughness'
+  | 'metallic'
+  | 'ao'
+  | 'emissive'
+  | 'opacity'
+  | 'height'
+  | 'packed'
+  | 'other';
+
 export interface Scene {
   id: string;
   projectId: string;
+  kind: SetKind;
   name: string;
   description: string;
   artDirection: string;
   canvas: { width: number; height: number; background: string };
   items: SceneItem[];
+  /** Model sets: target engine + shared UV reference + optional model file/preview. */
+  target?: EngineTarget;
+  uvTemplate?: string;
+  /** Optional UV island layout (enables a matching procedural preview mesh). */
+  uvLayout?: UvIsland[];
+  /** Optional procedural mesh so the preview shows the model without a file. */
+  mesh?: MeshSpec;
+  modelFile?: { name: string; url?: string; dataUrl?: string };
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
 }
 
+export interface BlueprintReference {
+  url?: string;
+  dataUrl?: string;
+  caption?: string;
+}
+
 /** A production plan authored by the AI assistant and imported into the tool. */
 export interface SceneBlueprint {
+  schemaVersion?: number;
+  /** Stable id → enables idempotent upsert instead of duplication. */
+  id?: string;
+  action?: 'create' | 'upsert';
+  kind?: SetKind;
   name: string;
   description: string;
   artDirection: string;
-  canvas: { width: number; height: number; background: string };
-  assets: SceneBlueprintAsset[];
+  target?: EngineTarget;
+  uvTemplate?: string;
+  uvLayout?: UvIsland[];
+  /** Optional procedural mesh (primitives + UV) — a file-less model. */
+  mesh?: MeshSpec;
+  /** Optional URL of the model mesh (.glb) so the preview shows the real asset. */
+  modelUrl?: string;
+  modelName?: string;
+  canvas?: { width: number; height: number; background: string };
+  /** Scene blueprints use `assets`; model blueprints may use `maps` (or `assets`). */
+  assets?: SceneBlueprintAsset[];
+  maps?: SceneBlueprintMap[];
 }
 
 export interface SceneBlueprintAsset {
+  id?: string;
   title: string;
   type: TicketType;
   status?: TicketStatus;
+  map?: MapType;
+  priority?: 'low' | 'medium' | 'high';
+  purpose?: string;
+  acceptanceCriteria?: string[];
+  references?: BlueprintReference[];
   dimensions: { width: number; height: number };
   background: BackgroundKind;
   brief: string;
   layout: { x: number; y: number; width: number; height: number; layer: number };
+}
+
+export interface SceneBlueprintMap {
+  id?: string;
+  map: MapType;
+  title?: string;
+  brief?: string;
+  optional?: boolean;
+  priority?: 'low' | 'medium' | 'high';
+  purpose?: string;
+  acceptanceCriteria?: string[];
+  references?: BlueprintReference[];
+  dimensions?: { width: number; height: number };
+  background?: BackgroundKind;
 }
 
 export interface Project {
@@ -190,6 +283,7 @@ export interface ViewState {
   gridSize: number;
   showReferences: boolean;
   guide: GuideShape;
+  showUvOverlay: boolean;
 }
 
 export const DEFAULT_DIMENSIONS = { width: 512, height: 512 };

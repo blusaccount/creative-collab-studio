@@ -1,5 +1,6 @@
 import type { LayerState, Project, Scene, StudioMeta, StudioSettings, Ticket } from '../types';
 import { DUNGEON_ENTRANCE_BLUEPRINT } from '../data/dungeonScene';
+import { getPlayerKnightBlueprint, PLAYER_KNIGHT_NAME } from '../data/modelDemo';
 import { createSeedProject } from '../data/seed';
 import { createDefaultLayerStates } from '../drawing/factory';
 import { buildSceneFromBlueprint } from '../scenes/build';
@@ -60,6 +61,10 @@ function normalizeTicket(ticket: Ticket): Ticket {
   };
 }
 
+function normalizeScene(scene: Scene): Scene {
+  return { ...scene, kind: scene.kind ?? 'scene' };
+}
+
 function nextOrder(tickets: Ticket[], projectId: string): number {
   return (
     tickets
@@ -105,6 +110,7 @@ export async function bootstrapStudio(): Promise<StudioSnapshot> {
 
   const rawTickets = tickets;
   tickets = tickets.map(normalizeTicket);
+  scenes = scenes.map(normalizeScene);
   // Repair records corrupted by an older duplicate-layer bug, then persist the fix.
   const repaired = tickets.filter(
     (ticket, index) => ticket.layers.length !== (rawTickets[index]?.layers?.length ?? 0),
@@ -113,15 +119,32 @@ export async function bootstrapStudio(): Promise<StudioSnapshot> {
     await putRecords(STORE_TICKETS, tickets);
   }
 
+  // One-time upgrade: give an already-imported Player – Ritter model set its UV
+  // layout, so the 3D preview can show the matching mesh.
+  const knight = scenes.find((scene) => scene.kind === 'model' && scene.name === PLAYER_KNIGHT_NAME);
+  if (knight && (!knight.uvLayout || knight.uvLayout.length === 0 || !knight.mesh)) {
+    const blueprint = getPlayerKnightBlueprint();
+    const upgraded: Scene = {
+      ...knight,
+      uvLayout: knight.uvLayout?.length ? knight.uvLayout : blueprint.uvLayout,
+      uvTemplate: knight.uvTemplate || blueprint.uvTemplate,
+      mesh: knight.mesh ?? blueprint.mesh,
+      updatedAt: Date.now(),
+    };
+    scenes = scenes.map((scene) => (scene.id === knight.id ? upgraded : scene));
+    await putRecord(STORE_SCENES, upgraded);
+  }
+
   // One-time localization: bring an already-imported English demo scene in line
   // with the current (German) blueprint, matching assets by layout order.
   const legacyScene = scenes.find((scene) => scene.artDirection?.startsWith('Hand-painted'));
   if (legacyScene) {
+    const blueprintAssets = DUNGEON_ENTRANCE_BLUEPRINT.assets ?? [];
     const ordered = [...legacyScene.items].sort((a, b) => a.layer - b.layer);
-    if (ordered.length === DUNGEON_ENTRANCE_BLUEPRINT.assets.length) {
+    if (ordered.length === blueprintAssets.length) {
       const touched: Ticket[] = [];
       ordered.forEach((item, index) => {
-        const asset = DUNGEON_ENTRANCE_BLUEPRINT.assets[index];
+        const asset = blueprintAssets[index];
         const ticket = tickets.find((entry) => entry.id === item.ticketId);
         if (ticket && asset) {
           ticket.title = asset.title;

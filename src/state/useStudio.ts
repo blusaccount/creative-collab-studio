@@ -132,14 +132,70 @@ export function useStudio() {
   );
 
   const importBlueprint = useCallback(
-    async (blueprint: SceneBlueprint, projectId?: string) => {
+    async (
+      blueprint: SceneBlueprint,
+      projectId?: string,
+      decorate?: (ticket: Ticket, index: number) => Partial<Ticket>,
+    ) => {
       const targetProject = projectId ?? activeProject?.id;
       if (!targetProject) return null;
       const baseOrder =
         tickets
           .filter((ticket) => ticket.projectId === targetProject)
           .reduce((max, ticket) => Math.max(max, ticket.order), -1) + 1;
-      const { scene, tickets: generated } = buildSceneFromBlueprint(blueprint, targetProject, baseOrder);
+      const built = buildSceneFromBlueprint(blueprint, targetProject, baseOrder);
+      const scene = built.scene;
+
+      // Idempotent upsert: a blueprint with an existing scene id updates that
+      // scene and its tickets instead of duplicating the whole set.
+      const existing = blueprint.id ? scenes.find((item) => item.id === blueprint.id) : undefined;
+      if (existing) {
+        const prevById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+        const merged = built.tickets.map((ticket) => {
+          const prev = prevById.get(ticket.id);
+          if (!prev) return ticket;
+          return {
+            ...prev,
+            title: ticket.title,
+            description: ticket.description,
+            type: ticket.type,
+            dimensions: ticket.dimensions,
+            background: ticket.background,
+            mapType: ticket.mapType,
+            updatedAt: Date.now(),
+          } as Ticket;
+        });
+        const updatedScene: Scene = {
+          ...existing,
+          kind: scene.kind,
+          name: scene.name,
+          description: scene.description,
+          artDirection: scene.artDirection,
+          target: scene.target,
+          uvTemplate: scene.uvTemplate,
+          uvLayout: scene.uvLayout,
+          mesh: scene.mesh,
+          modelFile: scene.modelFile ?? existing.modelFile,
+          canvas: scene.canvas,
+          items: scene.items,
+          updatedAt: Date.now(),
+        };
+        setScenes((current) => current.map((item) => (item.id === updatedScene.id ? updatedScene : item)));
+        setTickets((current) => {
+          const map = new Map(current.map((ticket) => [ticket.id, ticket]));
+          merged.forEach((ticket) => map.set(ticket.id, ticket));
+          return [...map.values()];
+        });
+        setActiveSceneId(updatedScene.id);
+        updateSettings({ lastSceneId: updatedScene.id });
+        await persistScene(updatedScene);
+        await persistTickets(merged);
+        return updatedScene;
+      }
+
+      const generated = decorate
+        ? built.tickets.map((ticket, index) => ({ ...ticket, ...decorate(ticket, index) }))
+        : built.tickets;
       setScenes((current) => [...current, scene]);
       setTickets((current) => [...current, ...generated]);
       setActiveSceneId(scene.id);
@@ -152,7 +208,7 @@ export function useStudio() {
       await persistTickets(generated);
       return scene;
     },
-    [activeProject, tickets, updateSettings],
+    [activeProject, tickets, scenes, updateSettings],
   );
 
   const deleteScene = useCallback(
@@ -189,6 +245,17 @@ export function useStudio() {
     [scenes],
   );
 
+  const updateScene = useCallback(
+    async (id: string, patch: Partial<Scene>) => {
+      const existing = scenes.find((scene) => scene.id === id);
+      if (!existing) return;
+      const updated: Scene = { ...existing, ...patch, updatedAt: Date.now() };
+      setScenes((current) => current.map((scene) => (scene.id === id ? updated : scene)));
+      await persistScene(updated);
+    },
+    [scenes],
+  );
+
   const selectProject = useCallback(
     (projectId: string) => {
       setActiveProjectId(projectId);
@@ -211,7 +278,7 @@ export function useStudio() {
       const now = Date.now();
       const project: Project = {
         id: createId('project'),
-        name: input.name.trim() || 'Untitled project',
+        name: input.name.trim() || t('fallback.project'),
         assetOutputFolder: input.assetOutputFolder.trim() || 'creative-collab-output',
         defaultDimensions: input.defaultDimensions,
         createdAt: now,
@@ -277,7 +344,7 @@ export function useStudio() {
       const ticket: Ticket = {
         id: createId('ticket'),
         projectId,
-        title: input.title.trim() || 'Untitled asset',
+        title: input.title.trim() || t('fallback.asset'),
         description: input.description.trim(),
         type: input.type,
         status: input.status,
@@ -435,6 +502,7 @@ export function useStudio() {
     deleteScene,
     selectScene,
     completeScene,
+    updateScene,
   };
 }
 

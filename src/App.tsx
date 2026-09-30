@@ -3,20 +3,26 @@ import { useStudio, type NewProjectInput, type NewTicketInput } from './state/us
 import type { SceneBlueprint, Ticket } from './types';
 import { Editor, type EditorHandle } from './components/Editor';
 import { TicketQueue } from './components/TicketQueue';
+import { GroupList } from './components/GroupList';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SceneView } from './components/SceneView';
+import { ModelBoard } from './components/ModelBoard';
 import { NewTicketDialog } from './components/NewTicketDialog';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { TicketSettingsDialog } from './components/TicketSettingsDialog';
 import { ProjectSettingsDialog } from './components/ProjectSettingsDialog';
 import { AiGuideDialog } from './components/AiGuideDialog';
+import { BlueprintImportDialog } from './components/BlueprintImportDialog';
 import { ConfirmDialog } from './components/Modal';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { Icon } from './components/Icon';
 import { DUNGEON_ENTRANCE_BLUEPRINT } from './data/dungeonScene';
+import { generateKnightMapDataUrl, getPlayerKnightBlueprint, getPlayerKnightPaintedBlueprint } from './data/modelDemo';
 import { composeTicketBlob } from './drawing/compose';
-import { buildAssetFilename } from './utils/naming';
+import { buildAssetFilename, slugify } from './utils/naming';
+import { buildProjectState } from './scenes/serialize';
 import { downloadBlob } from './utils/download';
+import { readFileAsDataUrl } from './utils/psd';
 import { createId } from './utils/id';
 import { getLanguage, setLanguage, subscribeLanguage, t } from './i18n';
 
@@ -40,6 +46,17 @@ function App() {
   const [settingsTicketId, setSettingsTicketId] = useState<string | null>(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [groupFilter, setGroupFilter] = useState<string | 'all'>('all');
+  // keep the group filter valid across project switches / group deletion
+  useEffect(() => {
+    setGroupFilter('all');
+  }, [studio.activeProjectId]);
+  useEffect(() => {
+    if (groupFilter !== 'all' && !studio.projectScenes.some((scene) => scene.id === groupFilter)) {
+      setGroupFilter('all');
+    }
+  }, [groupFilter, studio.projectScenes]);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const editorRef = useRef<EditorHandle | null>(null);
 
@@ -127,9 +144,11 @@ function App() {
     }
   };
 
-  const activeSceneName = studio.activeTicket?.sceneId
-    ? studio.scenes.find((scene) => scene.id === studio.activeTicket?.sceneId)?.name ?? null
+  const activeTicketGroup = studio.activeTicket?.sceneId
+    ? studio.scenes.find((scene) => scene.id === studio.activeTicket?.sceneId) ?? null
     : null;
+  const activeSceneName = activeTicketGroup?.name ?? null;
+  const activeUvTemplate = activeTicketGroup?.kind === 'model' ? activeTicketGroup.uvTemplate : undefined;
 
   const handleLoadDemoScene = () => {
     if (studio.projectScenes.some((scene) => scene.name === DUNGEON_ENTRANCE_BLUEPRINT.name)) {
@@ -139,6 +158,63 @@ function App() {
     void studio.importBlueprint(DUNGEON_ENTRANCE_BLUEPRINT).then((scene) => {
       if (scene) notify(t('toast.sceneLoaded', { count: scene.items.length }), 'success');
     });
+  };
+
+  const handleLoadModelDemo = () => {
+    const blueprint = getPlayerKnightBlueprint();
+    if (studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
+      notify(t('toast.demoSceneExists'), 'info');
+      return;
+    }
+    void studio.importBlueprint(blueprint).then((scene) => {
+      if (scene) {
+        notify(t('toast.groupLoaded', { count: scene.items.length }), 'success');
+        setViewMode('scene');
+      }
+    });
+  };
+
+  const paintTicket = (ticket: Ticket, uvTemplate?: string) => {
+    const paint = generateKnightMapDataUrl(ticket.mapType ?? 'basecolor', 1024);
+    const layers = ticket.layers.map((layer) =>
+      layer.kind === 'reference' ? { ...layer, dataUrl: uvTemplate ?? '' } : { ...layer, dataUrl: paint },
+    );
+    return { layers, status: 'complete' as const, completedAt: Date.now() };
+  };
+
+  const handleExportState = async () => {
+    if (!studio.activeProject) return;
+    const doc = await buildProjectState(studio.activeProject, studio.scenes, studio.tickets);
+    downloadBlob(
+      new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }),
+      `${slugify(studio.activeProject.name)}-state.json`,
+    );
+    notify(t('toast.stateExported'), 'success');
+  };
+
+  const handleLoadPaintedKnight = () => {
+    const blueprint = getPlayerKnightPaintedBlueprint();
+    const existing = studio.projectScenes.find((scene) => scene.name === blueprint.name);
+    if (existing) {
+      // Repaint the existing example with the current recipe.
+      const tickets = studio.projectTickets.filter((ticket) => ticket.sceneId === existing.id);
+      void Promise.all(
+        tickets.map((ticket) => studio.updateTicket(ticket.id, paintTicket(ticket, blueprint.uvTemplate))),
+      ).then(() => {
+        studio.selectScene(existing.id);
+        setViewMode('scene');
+        notify(t('toast.groupLoaded', { count: tickets.length }), 'success');
+      });
+      return;
+    }
+    void studio
+      .importBlueprint(blueprint, undefined, (ticket) => paintTicket(ticket, blueprint.uvTemplate))
+      .then((scene) => {
+        if (scene) {
+          notify(t('toast.groupLoaded', { count: scene.items.length }), 'success');
+          setViewMode('scene');
+        }
+      });
   };
 
   const flushEditor = () => {
@@ -154,7 +230,15 @@ function App() {
   };
 
   const handleImportBlueprint = (blueprint: SceneBlueprint) => {
-    void studio.importBlueprint(blueprint);
+    if (studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
+      notify(t('toast.groupExists'), 'info');
+      return;
+    }
+    void studio.importBlueprint(blueprint).then((scene) => {
+      if (!scene) return;
+      notify(t('toast.blueprintImported', { name: blueprint.name, count: scene.items.length }), 'success');
+      setViewMode('scene');
+    });
   };
 
   const handleCreateProject = async (input: NewProjectInput) => {
@@ -214,12 +298,18 @@ function App() {
               ))}
             </select>
           </label>
-          <button className="icon-button" title={t('app.newProjectTitle')} onClick={() => setShowNewProject(true)}>
+          <button
+            className="icon-button"
+            title={t('app.newProjectTitle')}
+            aria-label={t('app.newProjectTitle')}
+            onClick={() => setShowNewProject(true)}
+          >
             <Icon name="plus" size={16} />
           </button>
           <button
             className="icon-button"
             title={t('app.projectSettingsTitle')}
+            aria-label={t('app.projectSettingsTitle')}
             onClick={() => setShowProjectSettings(true)}
           >
             <Icon name="settings" size={16} />
@@ -238,8 +328,21 @@ function App() {
               <Icon name="image" size={15} /> {t('app.view.assets')}
             </button>
           </div>
-          <button className="icon-button" title={t('app.aiGuide')} aria-label={t('app.aiGuide')} onClick={() => setShowGuide(true)}>
+          <button
+            className="icon-button"
+            title={t('scene.pasteFromAi')}
+            aria-label={t('scene.pasteFromAi')}
+            onClick={() => setShowImport(true)}
+          >
             <Icon name="bot" size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title={t('app.exportState')}
+            aria-label={t('app.exportState')}
+            onClick={handleExportState}
+          >
+            <Icon name="download" size={16} />
           </button>
           <button
             className="icon-button lang-button"
@@ -265,9 +368,25 @@ function App() {
       </header>
 
       <main className="app-main">
+        <GroupList
+          groups={studio.projectScenes}
+          tickets={studio.projectTickets}
+          activeGroupId={groupFilter}
+          onSelect={(id) => {
+            setGroupFilter(id);
+            if (id !== 'all') {
+              studio.selectScene(id);
+              setViewMode('scene');
+            }
+          }}
+          onOpenGuide={() => setShowImport(true)}
+          onLoadModelDemo={handleLoadModelDemo}
+          onLoadPaintedDemo={handleLoadPaintedKnight}
+        />
         <TicketQueue
           tickets={studio.projectTickets}
           scenes={studio.projectScenes}
+          groupFilter={groupFilter}
           activeTicketId={studio.activeTicketId}
           onSelect={(id) => {
             studio.selectTicket(id);
@@ -291,6 +410,20 @@ function App() {
               ticket={studio.activeTicket}
               project={studio.activeProject}
               sceneName={activeSceneName}
+              uvTemplate={activeUvTemplate}
+              modelGroup={activeTicketGroup?.kind === 'model' ? activeTicketGroup : null}
+              groupTickets={
+                activeTicketGroup
+                  ? studio.projectTickets.filter((item) => item.sceneId === activeTicketGroup.id)
+                  : []
+              }
+              onAttachModel={(file) => {
+                if (!activeTicketGroup) return;
+                void readFileAsDataUrl(file).then((dataUrl) =>
+                  studio.updateScene(activeTicketGroup.id, { modelFile: { name: file.name, dataUrl } }),
+                );
+              }}
+              onOpenTicket={(id) => studio.selectTicket(id)}
               settings={studio.settings}
               onUpdateTicket={studio.updateTicket}
               onAddNote={studio.addNote}
@@ -301,37 +434,68 @@ function App() {
             />
           ) : (
             <section className="editor-panel empty">
-              <Icon name="brush" size={40} />
-              <h2>{t('app.empty.title')}</h2>
-              <p>{t('app.empty.body')}</p>
-              <button className="primary-button" onClick={() => setShowNewTicket(true)}>
-                <Icon name="plus" size={15} /> {t('app.empty.newTicket')}
-              </button>
+              <Icon name={studio.activeProject ? 'brush' : 'folder'} size={40} />
+              <h2>{studio.activeProject ? t('app.empty.title') : t('app.newProjectTitle')}</h2>
+              <p>{studio.activeProject ? t('app.empty.body') : t('newProject.name')}</p>
+              {studio.activeProject ? (
+                <button className="primary-button" onClick={() => setShowNewTicket(true)}>
+                  <Icon name="plus" size={15} /> {t('app.empty.newTicket')}
+                </button>
+              ) : (
+                <button className="primary-button" onClick={() => setShowNewProject(true)}>
+                  <Icon name="plus" size={15} /> {t('editor.createProject')}
+                </button>
+              )}
             </section>
           )
         ) : viewMode === 'scene' ? (
-          <SceneView
-            project={studio.activeProject}
-            scenes={studio.projectScenes}
-            activeScene={studio.activeScene}
-            tickets={studio.projectTickets}
-            settings={studio.settings}
-            onSelectScene={studio.selectScene}
-            onImportBlueprint={handleImportBlueprint}
-            onLoadDemo={handleLoadDemoScene}
-            onDeleteScene={(id) => void studio.deleteScene(id)}
-            onCompleteScene={(id) => void studio.completeScene(id)}
-            onOpenTicket={(id) => {
-              studio.selectTicket(id);
-              setViewMode('editor');
-            }}
-            onOpenGuide={() => setShowGuide(true)}
-            notify={notify}
-          />
+          studio.activeScene?.kind === 'model' ? (
+            <ModelBoard
+              project={studio.activeProject}
+              activeScene={studio.activeScene}
+              tickets={studio.projectTickets}
+              settings={studio.settings}
+              onImportBlueprint={handleImportBlueprint}
+              onLoadDemo={handleLoadModelDemo}
+              onDeleteScene={(id) => void studio.deleteScene(id)}
+              onCompleteScene={(id) => void studio.completeScene(id)}
+              onUpdateScene={(id, patch) => void studio.updateScene(id, patch)}
+              onOpenTicket={(id) => {
+                studio.selectTicket(id);
+                setViewMode('editor');
+              }}
+              onOpenGuide={() => setShowGuide(true)}
+              notify={notify}
+            />
+          ) : (
+            <SceneView
+              project={studio.activeProject}
+              scenes={studio.projectScenes}
+              activeScene={studio.activeScene}
+              tickets={studio.projectTickets}
+              settings={studio.settings}
+              onSelectScene={studio.selectScene}
+              onSelectGroup={(id) => {
+                setGroupFilter(id);
+                studio.selectScene(id);
+              }}
+              onImportBlueprint={handleImportBlueprint}
+              onLoadDemo={handleLoadDemoScene}
+              onDeleteScene={(id) => void studio.deleteScene(id)}
+              onCompleteScene={(id) => void studio.completeScene(id)}
+              onOpenTicket={(id) => {
+                studio.selectTicket(id);
+                setViewMode('editor');
+              }}
+              onOpenGuide={() => setShowGuide(true)}
+              notify={notify}
+            />
+          )
         ) : (
           <AssetLibrary
             project={studio.activeProject}
             tickets={studio.projectTickets}
+            groupFilter={groupFilter}
             settings={studio.settings}
             onOpenTicket={(id) => {
               studio.selectTicket(id);
@@ -382,6 +546,9 @@ function App() {
       ) : null}
 
       {showGuide ? <AiGuideDialog onClose={() => setShowGuide(false)} /> : null}
+      {showImport ? (
+        <BlueprintImportDialog onClose={() => setShowImport(false)} onImport={handleImportBlueprint} />
+      ) : null}
 
       {confirmState ? (
         <ConfirmDialog

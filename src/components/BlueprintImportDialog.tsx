@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SceneBlueprint } from '../types';
 import { getLanguage, t } from '../i18n';
 import { buildAiPrompt } from '../scenes/aiPrompt';
-import { validateBlueprint } from '../scenes/build';
+import { validateBlueprintReport } from '../scenes/build';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 
@@ -15,6 +15,8 @@ export function BlueprintImportDialog({ onClose, onImport }: BlueprintImportDial
   const prompt = buildAiPrompt(getLanguage());
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [confirmWarn, setConfirmWarn] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const copyPrompt = async () => {
@@ -37,15 +39,27 @@ export function BlueprintImportDialog({ onClose, onImport }: BlueprintImportDial
       setError(t('blueprint.empty'));
       return;
     }
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text);
-      const blueprint = validateBlueprint(parsed);
-      if (!blueprint) throw new Error(t('blueprint.invalid'));
-      onImport(blueprint);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('blueprint.invalid'));
+      parsed = JSON.parse(text);
+    } catch {
+      setError(t('blueprint.invalid'));
+      return;
     }
+    const { blueprint, report } = validateBlueprintReport(parsed);
+    if (!blueprint || report.errors.length > 0) {
+      setError(report.errors.join(' ') || t('blueprint.invalid'));
+      setWarnings(report.warnings);
+      return;
+    }
+    if (report.warnings.length > 0 && !confirmWarn) {
+      setError(null);
+      setWarnings(report.warnings);
+      setConfirmWarn(true);
+      return;
+    }
+    onImport(blueprint);
+    onClose();
   };
 
   return (
@@ -59,7 +73,7 @@ export function BlueprintImportDialog({ onClose, onImport }: BlueprintImportDial
             {t('common.cancel')}
           </button>
           <button className="primary-button" onClick={submit}>
-            <Icon name="plus" size={15} /> {t('blueprint.import')}
+            <Icon name="plus" size={15} /> {confirmWarn ? t('blueprint.importAnyway') : t('blueprint.import')}
           </button>
         </>
       }
@@ -89,6 +103,13 @@ export function BlueprintImportDialog({ onClose, onImport }: BlueprintImportDial
             }}
           />
           {error ? <p className="hint warn">{error}</p> : null}
+          {warnings.length > 0 ? (
+            <ul className="blueprint-warnings">
+              {warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       </div>
     </Modal>

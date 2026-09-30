@@ -52,7 +52,9 @@ export type IconName =
   | 'ruler'
   | 'bot'
   | 'info'
-  | 'crop';
+  | 'crop'
+  | 'upload'
+  | 'cube';
 
 const paths: Record<IconName, ReactElement> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -285,6 +287,18 @@ const paths: Record<IconName, ReactElement> = {
     <>
       <path d="M6 2v14a2 2 0 0 0 2 2h14" />
       <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M4 20h16" />
+    </>
+  ),
+  cube: (
+    <>
+      <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
+      <path d="M12 3v18M4 7.5l8 4.5 8-4.5" />
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
