@@ -441,6 +441,7 @@ function App() {
                   studio.updateScene(activeTicketGroup.id, { modelFile: { name: file.name, dataUrl } }),
                 );
               }}
+              onOpenTicket={(id) => studio.selectTicket(id)}
               settings={studio.settings}
               onUpdateTicket={studio.updateTicket}
               onAddNote={studio.addNote}
