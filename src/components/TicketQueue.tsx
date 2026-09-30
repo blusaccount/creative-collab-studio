@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
-import type { Ticket, TicketStatus } from '../types';
-import { STATUS_LABEL, TICKET_TYPES } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import type { Scene, Ticket, TicketStatus } from '../types';
+import { TICKET_TYPES, TICKET_STATUSES } from '../types';
+import { t, getLocale } from '../i18n';
 import { Icon } from './Icon';
 
 type SortKey = 'manual' | 'updated' | 'created' | 'title' | 'status';
 
 interface TicketQueueProps {
   tickets: Ticket[];
+  scenes: Scene[];
   activeTicketId: string | null;
   onSelect: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -26,17 +28,18 @@ const STATUS_ORDER: Record<TicketStatus, number> = {
 function relativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.round(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t('time.justNow');
+  if (minutes < 60) return t('time.minutes', { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('time.hours', { n: hours });
   const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(timestamp).toLocaleDateString();
+  if (days < 30) return t('time.days', { n: days });
+  return new Date(timestamp).toLocaleDateString(getLocale());
 }
 
 export function TicketQueue({
   tickets,
+  scenes,
   activeTicketId,
   onSelect,
   onReorder,
@@ -47,9 +50,22 @@ export function TicketQueue({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | TicketStatus>('active');
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all');
+  const [sceneFilter, setSceneFilter] = useState<'all' | string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('manual');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  // Refresh relative timestamps once a minute.
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((value) => value + 1), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const sceneNames = useMemo(
+    () => new Map(scenes.map((scene) => [scene.id, scene.name])),
+    [scenes],
+  );
 
   const visible = useMemo(() => {
     let list = [...tickets];
@@ -60,6 +76,9 @@ export function TicketQueue({
     }
     if (typeFilter !== 'all') {
       list = list.filter((ticket) => ticket.type === typeFilter);
+    }
+    if (sceneFilter !== 'all') {
+      list = list.filter((ticket) => ticket.sceneId === sceneFilter);
     }
     const query = search.trim().toLowerCase();
     if (query) {
@@ -80,7 +99,7 @@ export function TicketQueue({
       list.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.order - b.order);
     }
     return list;
-  }, [tickets, statusFilter, typeFilter, search, sortKey]);
+  }, [tickets, statusFilter, typeFilter, sceneFilter, search, sortKey]);
 
   const handleDrop = (targetId: string) => {
     if (!dragId || dragId === targetId) return;
@@ -99,11 +118,11 @@ export function TicketQueue({
     <aside className="queue-panel">
       <div className="queue-head">
         <div className="panel-header">
-          <h2>Queue</h2>
+          <h2>{t('queue.title')}</h2>
           <span className="count">{tickets.length}</span>
         </div>
         <button className="primary-button full" onClick={onNewTicket}>
-          <Icon name="plus" /> New ticket
+          <Icon name="plus" /> {t('queue.newTicket')}
         </button>
       </div>
 
@@ -112,42 +131,52 @@ export function TicketQueue({
           <Icon name="search" size={14} />
           <input
             value={search}
-            placeholder="Search tickets"
+            placeholder={t('queue.search')}
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
         <div className="filter-row">
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
-            <option value="active">Active</option>
-            <option value="all">All statuses</option>
-            <option value="backlog">Backlog</option>
-            <option value="in-progress">In progress</option>
-            <option value="review-ready">Review ready</option>
-            <option value="complete">Complete</option>
-            <option value="archived">Archived</option>
+            <option value="active">{t('queue.filter.active')}</option>
+            <option value="all">{t('queue.filter.allStatus')}</option>
+            {TICKET_STATUSES.filter((status) => status !== 'archived').map((status) => (
+              <option key={status} value={status}>
+                {t(`status.${status}` as const)}
+              </option>
+            ))}
           </select>
           <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
-            <option value="all">All types</option>
+            <option value="all">{t('queue.filter.allTypes')}</option>
             {TICKET_TYPES.map((type) => (
               <option key={type} value={type}>
-                {type}
+                {t(`type.${type}` as const)}
               </option>
             ))}
           </select>
         </div>
         <div className="filter-row">
           <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            <option value="manual">Manual order</option>
-            <option value="updated">Recently updated</option>
-            <option value="created">Newest</option>
-            <option value="title">Title A-Z</option>
-            <option value="status">Status</option>
+            <option value="manual">{t('queue.sort.manual')}</option>
+            <option value="updated">{t('queue.sort.updated')}</option>
+            <option value="created">{t('queue.sort.created')}</option>
+            <option value="title">{t('queue.sort.title')}</option>
+            <option value="status">{t('queue.sort.status')}</option>
           </select>
+          {scenes.length > 0 ? (
+            <select value={sceneFilter} onChange={(event) => setSceneFilter(event.target.value)}>
+              <option value="all">{t('queue.filter.allScenes')}</option>
+              {scenes.map((scene) => (
+                <option key={scene.id} value={scene.id}>
+                  {scene.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       </div>
 
       <div className="queue-list">
-        {visible.length === 0 ? <p className="empty-state">No tickets match these filters.</p> : null}
+        {visible.length === 0 ? <p className="empty-state">{t('queue.empty')}</p> : null}
         {visible.map((ticket) => (
           <article
             key={ticket.id}
@@ -170,10 +199,15 @@ export function TicketQueue({
           >
             <div className="ticket-row">
               <span className="ticket-name">{ticket.title}</span>
-              <span className={`status ${ticket.status}`}>{STATUS_LABEL[ticket.status]}</span>
+              <span className={`status ${ticket.status}`}>{t(`status.${ticket.status}` as const)}</span>
             </div>
+            {ticket.sceneId && sceneNames.has(ticket.sceneId) ? (
+              <span className="scene-tag">
+                <Icon name="layers" size={11} /> {sceneNames.get(ticket.sceneId)}
+              </span>
+            ) : null}
             <p className="ticket-meta">
-              {ticket.type} · {ticket.dimensions.width}×{ticket.dimensions.height} ·{' '}
+              {t(`type.${ticket.type}` as const)} · {ticket.dimensions.width}×{ticket.dimensions.height} ·{' '}
               {ticket.version > 1 ? `v${ticket.version} · ` : ''}
               {relativeTime(ticket.updatedAt)}
             </p>
@@ -181,29 +215,29 @@ export function TicketQueue({
               {ticket.status !== 'complete' ? (
                 <button
                   className="mini-button"
-                  title="Mark complete"
+                  title={t('queue.action.markComplete')}
                   onClick={(event) => {
                     event.stopPropagation();
                     onQuickStatus(ticket, 'complete');
                   }}
                 >
-                  <Icon name="check" size={13} /> Complete
+                  <Icon name="check" size={13} /> {t('queue.action.complete')}
                 </button>
               ) : (
                 <button
                   className="mini-button"
-                  title="Reopen"
+                  title={t('queue.action.reopenTitle')}
                   onClick={(event) => {
                     event.stopPropagation();
                     onQuickStatus(ticket, 'in-progress');
                   }}
                 >
-                  <Icon name="undo" size={13} /> Reopen
+                  <Icon name="undo" size={13} /> {t('queue.action.reopen')}
                 </button>
               )}
               <button
                 className="mini-button"
-                title="Ticket settings"
+                title={t('queue.action.settings')}
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpenSettings(ticket);

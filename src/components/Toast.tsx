@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 export interface ToastItem {
   id: string;
   message: string;
@@ -18,7 +20,7 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
           key={toast.id}
           className={`toast ${toast.tone}`}
           onClick={() => onDismiss(toast.id)}
-          title="Dismiss"
+          title={t('common.dismiss')}
         >
           {toast.message}
         </button>

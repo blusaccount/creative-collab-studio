@@ -9,9 +9,9 @@ export function getCheckerPattern(): HTMLCanvasElement {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#2a2f3a';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = '#343a47';
+  ctx.fillStyle = '#d6d6d6';
   ctx.fillRect(0, 0, cell, cell);
   ctx.fillRect(cell, cell, cell, cell);
   checkerPattern = canvas;

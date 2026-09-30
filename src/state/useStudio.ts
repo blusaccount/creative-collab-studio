@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BackgroundKind, Project, StudioSettings, Ticket, TicketStatus, TicketType } from '../types';
+import type {
+  BackgroundKind,
+  Project,
+  Scene,
+  SceneBlueprint,
+  StudioSettings,
+  Ticket,
+  TicketStatus,
+  TicketType,
+} from '../types';
 import { DEFAULT_DIMENSIONS } from '../types';
 import { createDefaultLayerStates } from '../drawing/factory';
+import { buildSceneFromBlueprint } from '../scenes/build';
+import { t } from '../i18n';
 import { createId } from '../utils/id';
 import {
   DEFAULT_SETTINGS,
   bootstrapStudio,
   persistProject,
+  persistScene,
   persistSettings,
   persistTicket,
+  persistTickets,
   removeProject,
+  removeScene,
   removeTicket,
 } from '../storage/repository';
 
@@ -33,9 +47,11 @@ export function useStudio() {
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
   const [settings, setSettings] = useState<StudioSettings>(DEFAULT_SETTINGS);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const bootstrapped = useRef(false);
 
   useEffect(() => {
@@ -45,6 +61,7 @@ export function useStudio() {
       .then((snapshot) => {
         setProjects(snapshot.projects);
         setTickets(snapshot.tickets);
+        setScenes(snapshot.scenes);
         setSettings(snapshot.settings);
         const storedProject = snapshot.settings.lastProjectId;
         const project =
@@ -56,9 +73,13 @@ export function useStudio() {
           projectTickets.find((item) => item.id === storedTicket) ??
           [...projectTickets].sort((a, b) => a.order - b.order)[0];
         setActiveTicketId(ticket?.id ?? null);
+        const projectScenes = snapshot.scenes.filter((scene) => scene.projectId === project?.id);
+        const storedScene = snapshot.settings.lastSceneId;
+        const scene = projectScenes.find((item) => item.id === storedScene) ?? projectScenes[0];
+        setActiveSceneId(scene?.id ?? null);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Failed to load studio data');
+        setError(err instanceof Error ? err.message : t('toast.loadFailed'));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -80,13 +101,93 @@ export function useStudio() {
     [tickets, activeTicketId],
   );
 
+  const projectScenes = useMemo(() => {
+    if (!activeProject) return [];
+    return scenes
+      .filter((scene) => scene.projectId === activeProject.id)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }, [scenes, activeProject]);
+
+  const activeScene = useMemo(
+    () => scenes.find((scene) => scene.id === activeSceneId) ?? null,
+    [scenes, activeSceneId],
+  );
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
   const updateSettings = useCallback((patch: Partial<StudioSettings>) => {
-    setSettings((current) => {
-      const next = { ...current, ...patch };
-      persistSettings(next).catch((err) => setError(String(err)));
-      return next;
-    });
+    const next = { ...settingsRef.current, ...patch };
+    settingsRef.current = next;
+    setSettings(next);
+    persistSettings(next).catch((err) => setError(String(err)));
   }, []);
+
+  const selectScene = useCallback(
+    (id: string | null) => {
+      setActiveSceneId(id);
+      updateSettings({ lastSceneId: id ?? undefined });
+    },
+    [updateSettings],
+  );
+
+  const importBlueprint = useCallback(
+    async (blueprint: SceneBlueprint, projectId?: string) => {
+      const targetProject = projectId ?? activeProject?.id;
+      if (!targetProject) return null;
+      const baseOrder =
+        tickets
+          .filter((ticket) => ticket.projectId === targetProject)
+          .reduce((max, ticket) => Math.max(max, ticket.order), -1) + 1;
+      const { scene, tickets: generated } = buildSceneFromBlueprint(blueprint, targetProject, baseOrder);
+      setScenes((current) => [...current, scene]);
+      setTickets((current) => [...current, ...generated]);
+      setActiveSceneId(scene.id);
+      updateSettings({ lastSceneId: scene.id });
+      if (generated[0]) {
+        setActiveTicketId(generated[0].id);
+        updateSettings({ lastTicketId: generated[0].id });
+      }
+      await persistScene(scene);
+      await persistTickets(generated);
+      return scene;
+    },
+    [activeProject, tickets, updateSettings],
+  );
+
+  const deleteScene = useCallback(
+    async (id: string) => {
+      const scene = scenes.find((item) => item.id === id);
+      if (!scene) return;
+      const sceneTicketIds = new Set<string>([
+        ...scene.items.map((item) => item.ticketId),
+        ...tickets.filter((ticket) => ticket.sceneId === id).map((ticket) => ticket.id),
+      ]);
+      await Promise.all([...sceneTicketIds].map((ticketId) => removeTicket(ticketId)));
+      await removeScene(id);
+      setScenes((current) => current.filter((item) => item.id !== id));
+      setTickets((current) => current.filter((ticket) => !sceneTicketIds.has(ticket.id)));
+      if (activeSceneId === id) {
+        const remaining = scenes.filter((item) => item.id !== id && item.projectId === scene.projectId);
+        setActiveSceneId(remaining[0]?.id ?? null);
+      }
+      if (activeTicketId && sceneTicketIds.has(activeTicketId)) {
+        setActiveTicketId(null);
+      }
+    },
+    [scenes, tickets, activeSceneId, activeTicketId],
+  );
+
+  const completeScene = useCallback(
+    async (id: string) => {
+      const scene = scenes.find((item) => item.id === id);
+      if (!scene) return;
+      const updated: Scene = { ...scene, completedAt: Date.now(), updatedAt: Date.now() };
+      setScenes((current) => current.map((item) => (item.id === id ? updated : item)));
+      await persistScene(updated);
+    },
+    [scenes],
+  );
 
   const selectProject = useCallback(
     (projectId: string) => {
@@ -97,8 +198,12 @@ export function useStudio() {
         .sort((a, b) => a.order - b.order)[0];
       setActiveTicketId(first?.id ?? null);
       if (first) updateSettings({ lastTicketId: first.id });
+      const firstScene = scenes
+        .filter((scene) => scene.projectId === projectId)
+        .sort((a, b) => a.createdAt - b.createdAt)[0];
+      setActiveSceneId(firstScene?.id ?? null);
     },
-    [tickets, updateSettings],
+    [tickets, scenes, updateSettings],
   );
 
   const createProject = useCallback(
@@ -116,6 +221,7 @@ export function useStudio() {
       setActiveProjectId(project.id);
       updateSettings({ lastProjectId: project.id });
       setActiveTicketId(null);
+      setActiveSceneId(null);
       await persistProject(project);
       return project;
     },
@@ -140,16 +246,26 @@ export function useStudio() {
       const remainingTickets = tickets.filter((ticket) => ticket.projectId !== id);
       setProjects(remainingProjects);
       setTickets(remainingTickets);
+      setScenes((current) => current.filter((scene) => scene.projectId !== id));
       if (id === activeProjectId) {
         const nextProject = remainingProjects[0];
         setActiveProjectId(nextProject?.id ?? '');
         const firstTicket = remainingTickets
           .filter((ticket) => ticket.projectId === nextProject?.id)
           .sort((a, b) => a.order - b.order)[0];
+        const firstScene = scenes
+          .filter((scene) => scene.projectId === nextProject?.id)
+          .sort((a, b) => a.createdAt - b.createdAt)[0];
         setActiveTicketId(firstTicket?.id ?? null);
+        setActiveSceneId(firstScene?.id ?? null);
+        updateSettings({
+          lastProjectId: nextProject?.id,
+          lastTicketId: firstTicket?.id,
+          lastSceneId: firstScene?.id,
+        });
       }
     },
-    [projects, tickets, activeProjectId],
+    [projects, tickets, scenes, activeProjectId, updateSettings],
   );
 
   const createTicket = useCallback(
@@ -203,6 +319,21 @@ export function useStudio() {
       const ticket = tickets.find((item) => item.id === id);
       await removeTicket(id);
       setTickets((current) => current.filter((item) => item.id !== id));
+
+      // Unlink the ticket from every scene that references it (items or sceneId).
+      const affectedScenes = scenes.filter(
+        (scene) => scene.id === ticket?.sceneId || scene.items.some((item) => item.ticketId === id),
+      );
+      for (const scene of affectedScenes) {
+        const updated: Scene = {
+          ...scene,
+          items: scene.items.filter((item) => item.ticketId !== id),
+          updatedAt: Date.now(),
+        };
+        setScenes((current) => current.map((item) => (item.id === scene.id ? updated : item)));
+        await persistScene(updated);
+      }
+
       if (activeTicketId === id && ticket) {
         const remaining = tickets
           .filter((item) => item.projectId === ticket.projectId && item.id !== id)
@@ -210,7 +341,7 @@ export function useStudio() {
         setActiveTicketId(remaining[0]?.id ?? null);
       }
     },
-    [tickets, activeTicketId],
+    [tickets, activeTicketId, scenes],
   );
 
   const selectTicket = useCallback(
@@ -225,19 +356,19 @@ export function useStudio() {
     async (projectId: string, orderedIds: string[]) => {
       const now = Date.now();
       const updates: Ticket[] = [];
-      setTickets((current) =>
-        current.map((ticket) => {
-          if (ticket.projectId !== projectId) return ticket;
-          const order = orderedIds.indexOf(ticket.id);
-          if (order === -1 || order === ticket.order) return ticket;
-          const next = { ...ticket, order, updatedAt: now };
-          updates.push(next);
-          return next;
-        }),
-      );
+      const next = tickets.map((ticket) => {
+        if (ticket.projectId !== projectId) return ticket;
+        const order = orderedIds.indexOf(ticket.id);
+        if (order === -1 || order === ticket.order) return ticket;
+        const updated = { ...ticket, order, updatedAt: now };
+        updates.push(updated);
+        return updated;
+      });
+      if (updates.length === 0) return;
+      setTickets(next);
       await Promise.all(updates.map((ticket) => persistTicket(ticket)));
     },
-    [],
+    [tickets],
   );
 
   const addNote = useCallback(
@@ -249,7 +380,7 @@ export function useStudio() {
       const note = {
         id: createId('note'),
         body: trimmed,
-        author: 'Artist',
+        author: t('notes.author'),
         createdAt: Date.now(),
       };
       await updateTicket(ticketId, { notes: [...ticket.notes, note] });
@@ -259,14 +390,14 @@ export function useStudio() {
 
   const addRecentColor = useCallback(
     (color: string) => {
-      setSettings((current) => {
-        const next = {
-          ...current,
-          recentColors: [color, ...current.recentColors.filter((item) => item !== color)].slice(0, 18),
-        };
-        persistSettings(next).catch((err) => setError(String(err)));
-        return next;
-      });
+      const current = settingsRef.current;
+      const next: StudioSettings = {
+        ...current,
+        recentColors: [color, ...current.recentColors.filter((item) => item !== color)].slice(0, 18),
+      };
+      settingsRef.current = next;
+      setSettings(next);
+      persistSettings(next).catch((err) => setError(String(err)));
     },
     [],
   );
@@ -278,6 +409,10 @@ export function useStudio() {
     projects,
     tickets,
     projectTickets,
+    scenes,
+    projectScenes,
+    activeScene,
+    activeSceneId,
     settings,
     activeProject,
     activeProjectId,
@@ -296,6 +431,10 @@ export function useStudio() {
     addNote,
     updateSettings,
     addRecentColor,
+    importBlueprint,
+    deleteScene,
+    selectScene,
+    completeScene,
   };
 }
 

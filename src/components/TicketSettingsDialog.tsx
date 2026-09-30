@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BACKGROUND_LABEL, TICKET_TYPES } from '../types';
+import { BACKGROUND_KINDS, TICKET_STATUSES, TICKET_TYPES } from '../types';
 import type { BackgroundKind, Ticket, TicketStatus, TicketType } from '../types';
+import { t } from '../i18n';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 
@@ -47,87 +48,83 @@ export function TicketSettingsDialog({
 
   return (
     <Modal
-      title="Ticket details"
+      title={t('ticketSettings.title')}
       onClose={onClose}
       width={560}
       footer={
         <>
           <div className="footer-left">
             <button className="ghost-button" onClick={onArchive} disabled={ticket.status === 'archived'}>
-              <Icon name="archive" /> Archive
+              <Icon name="archive" /> {t('common.archive')}
             </button>
             <button className="ghost-button danger-text" onClick={onDelete}>
-              <Icon name="trash" /> Delete
+              <Icon name="trash" /> {t('common.delete')}
             </button>
           </div>
           <button className="ghost-button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className="primary-button" onClick={save}>
-            Save
+            {t('common.save')}
           </button>
         </>
       }
     >
       <div className="form-grid">
         <label className="field">
-          <span>Title</span>
+          <span>{t('newTicket.name')}</span>
           <input value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="field">
-          <span>Brief / description</span>
+          <span>{t('newTicket.brief')}</span>
           <textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} />
         </label>
         <div className="field-row">
           <label className="field">
-            <span>Type</span>
+            <span>{t('field.type')}</span>
             <select value={type} onChange={(event) => setType(event.target.value as TicketType)}>
               {TICKET_TYPES.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {t(`type.${option}` as const)}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            <span>Status</span>
+            <span>{t('field.status')}</span>
             <select value={status} onChange={(event) => setStatus(event.target.value as TicketStatus)}>
-              <option value="backlog">Backlog</option>
-              <option value="in-progress">In progress</option>
-              <option value="review-ready">Review ready</option>
-              <option value="complete">Complete</option>
-              <option value="archived">Archived</option>
+              {TICKET_STATUSES.map((option) => (
+                <option key={option} value={option}>
+                  {t(`status.${option}` as const)}
+                </option>
+              ))}
             </select>
           </label>
         </div>
         <div className="field-row">
           <label className="field">
-            <span>Width (px)</span>
+            <span>{t('field.width')}</span>
             <input type="number" value={width} onChange={(event) => setWidth(Number(event.target.value))} />
           </label>
           <label className="field">
-            <span>Height (px)</span>
+            <span>{t('field.height')}</span>
             <input type="number" value={height} onChange={(event) => setHeight(Number(event.target.value))} />
           </label>
           <label className="field">
-            <span>Canvas background</span>
+            <span>{t('field.background')}</span>
             <select
               value={background}
               onChange={(event) => setBackground(event.target.value as BackgroundKind)}
             >
-              {(Object.keys(BACKGROUND_LABEL) as BackgroundKind[]).map((option) => (
+              {BACKGROUND_KINDS.map((option) => (
                 <option key={option} value={option}>
-                  {BACKGROUND_LABEL[option]}
+                  {t(`background.${option}` as const)}
                 </option>
               ))}
             </select>
           </label>
         </div>
-        {dimensionsChanged ? (
-          <p className="hint warn">
-            Changing dimensions resizes the artboard. Existing art is scaled to fit and may shift.
-          </p>
-        ) : null}
+        {dimensionsChanged ? <p className="hint warn">{t('ticketSettings.dimsWarn')}</p> : null}
       </div>
     </Modal>
   );

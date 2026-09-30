@@ -1,8 +1,9 @@
 const DB_NAME = 'creative-collab-studio';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORE_PROJECTS = 'projects';
 export const STORE_TICKETS = 'tickets';
+export const STORE_SCENES = 'scenes';
 export const STORE_META = 'meta';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -13,16 +14,25 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_PROJECTS)) {
-        db.createObjectStore(STORE_PROJECTS, { keyPath: 'id' });
+      const transaction = request.transaction!;
+
+      const ensureStore = (name: string) => {
+        if (db.objectStoreNames.contains(name)) {
+          return transaction.objectStore(name);
+        }
+        return db.createObjectStore(name, { keyPath: 'id' });
+      };
+
+      ensureStore(STORE_PROJECTS);
+      const tickets = ensureStore(STORE_TICKETS);
+      if (!tickets.indexNames.contains('projectId')) {
+        tickets.createIndex('projectId', 'projectId', { unique: false });
       }
-      if (!db.objectStoreNames.contains(STORE_TICKETS)) {
-        const store = db.createObjectStore(STORE_TICKETS, { keyPath: 'id' });
-        store.createIndex('projectId', 'projectId', { unique: false });
+      const scenes = ensureStore(STORE_SCENES);
+      if (!scenes.indexNames.contains('projectId')) {
+        scenes.createIndex('projectId', 'projectId', { unique: false });
       }
-      if (!db.objectStoreNames.contains(STORE_META)) {
-        db.createObjectStore(STORE_META, { keyPath: 'id' });
-      }
+      ensureStore(STORE_META);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -88,11 +98,11 @@ export async function deleteRecord(storeName: string, key: IDBValidKey): Promise
   await withStore(storeName, 'readwrite', (store) => store.delete(key));
 }
 
-export async function deleteTicketsForProject(projectId: string): Promise<void> {
+async function deleteByProject(storeName: string, projectId: string): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE_TICKETS, 'readwrite');
-    const index = transaction.objectStore(STORE_TICKETS).index('projectId');
+    const transaction = db.transaction(storeName, 'readwrite');
+    const index = transaction.objectStore(storeName).index('projectId');
     const request = index.openCursor(IDBKeyRange.only(projectId));
     request.onsuccess = () => {
       const cursor = request.result;
@@ -106,12 +116,24 @@ export async function deleteTicketsForProject(projectId: string): Promise<void> 
   });
 }
 
+export async function deleteTicketsForProject(projectId: string): Promise<void> {
+  await deleteByProject(STORE_TICKETS, projectId);
+}
+
+export async function deleteScenesForProject(projectId: string): Promise<void> {
+  await deleteByProject(STORE_SCENES, projectId);
+}
+
 export async function resetDatabase(): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([STORE_PROJECTS, STORE_TICKETS, STORE_META], 'readwrite');
+    const transaction = db.transaction(
+      [STORE_PROJECTS, STORE_TICKETS, STORE_SCENES, STORE_META],
+      'readwrite',
+    );
     transaction.objectStore(STORE_PROJECTS).clear();
     transaction.objectStore(STORE_TICKETS).clear();
+    transaction.objectStore(STORE_SCENES).clear();
     transaction.objectStore(STORE_META).clear();
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);

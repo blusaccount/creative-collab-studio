@@ -97,6 +97,18 @@ The app is a fully client-side workspace with no backend. Projects and tickets a
 - Ticket workflow: statuses, notes/review comments, filters, sorting, drag-and-drop reorder
 - Asset export: transparent PNG, versioned file naming, batch export to an organized folder tree (File System Access API with download fallback)
 
+## Scene workflow (AI → artist → scene)
+
+This is the core loop the tool is built around:
+
+1. **AI plans the scene** — a scene blueprint (`src/data/dungeonScene.ts`, or any imported JSON) describes a location and its full asset list: titles, types, dimensions, paint briefs and a layout slot for each piece.
+2. **Tickets are generated** — importing a blueprint creates one ticket per required asset, grouped under the scene.
+3. **The artist paints** — each ticket opens in the drawing workspace; completing it feeds the scene.
+4. **The scene assembles** — the **Scene** board composites every completed asset into its layout slot in real time, tracks progress, and marks the scene finished when all assets are committed.
+5. **Delivery** — export the finished scene composite as a PNG, or export the whole blueprint back out as JSON.
+
+A ready-made scene (*Dungeon Crawler — Entrance Chamber*, 11 assets) is auto-loaded on first run so the loop is immediately testable.
+
 ## Development
 
 ```bash

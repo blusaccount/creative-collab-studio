@@ -33,7 +33,26 @@ export type IconName =
   | 'settings'
   | 'search'
   | 'reset'
-  | 'save';
+  | 'save'
+  | 'pencil'
+  | 'text'
+  | 'magnifier'
+  | 'swap'
+  | 'palette'
+  | 'shape-line'
+  | 'shape-curve'
+  | 'shape-rect'
+  | 'shape-ellipse'
+  | 'shape-triangle'
+  | 'shape-round-rect'
+  | 'shape-polygon'
+  | 'sun'
+  | 'moon'
+  | 'menu'
+  | 'ruler'
+  | 'bot'
+  | 'info'
+  | 'crop';
 
 const paths: Record<IconName, ReactElement> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -196,6 +215,83 @@ const paths: Record<IconName, ReactElement> = {
     <>
       <path d="M5 4h11l3 3v13H5z" />
       <path d="M8 4v5h7M8 20v-6h8v6" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M4 20l4.6-1.2L20 7.3a1.7 1.7 0 0 0 0-2.4l-.9-.9a1.7 1.7 0 0 0-2.4 0L5.2 15.4z" />
+      <path d="M15 6.5 17.5 9" />
+      <path d="M4 20l3-.9" />
+    </>
+  ),
+  text: (
+    <>
+      <path d="M5 5h14" />
+      <path d="M12 5v14" />
+      <path d="M9 19h6" />
+    </>
+  ),
+  magnifier: (
+    <>
+      <circle cx="10" cy="10" r="6" />
+      <path d="m15 15 5 5" />
+      <path d="M10 7.5v5M7.5 10h5" />
+    </>
+  ),
+  swap: (
+    <>
+      <path d="M4 8h13l-3.5-3.5" />
+      <path d="M20 16H7l3.5 3.5" />
+    </>
+  ),
+  palette: (
+    <>
+      <path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.3-.3-.3-.5-.7-.5-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.4-4-8-9-8z" />
+      <circle cx="8.5" cy="10.5" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="7.5" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="10.5" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  'shape-line': <path d="M4 19 20 5" />,
+  'shape-curve': <path d="M4 18C8 5 16 5 20 18" />,
+  'shape-rect': <rect x="4" y="6" width="16" height="12" rx="1" />,
+  'shape-ellipse': <ellipse cx="12" cy="12" rx="8" ry="6" />,
+  'shape-triangle': <path d="M12 4 21 19H3z" />,
+  'shape-round-rect': <rect x="4" y="6" width="16" height="12" rx="4" />,
+  'shape-polygon': <path d="M12 3 20 9 17.5 19h-11L4 9z" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />,
+  bot: (
+    <>
+      <rect x="4" y="8" width="16" height="11" rx="3" />
+      <path d="M12 8V5M9 5h6" />
+      <circle cx="9" cy="13" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="13" r="1.2" fill="currentColor" stroke="none" />
+      <path d="M9.5 16.5h5" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 7.6v.1" />
+    </>
+  ),
+  crop: (
+    <>
+      <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+    </>
+  ),
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  ruler: (
+    <>
+      <rect x="3" y="8" width="18" height="8" rx="1" transform="rotate(-20 12 12)" />
+      <path d="M8 9l1 2M12 8l1 2M16 7l1 2" />
     </>
   ),
 };

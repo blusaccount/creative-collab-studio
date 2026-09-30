@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { NewProjectInput } from '../state/useStudio';
+import { t } from '../i18n';
 import { Modal } from './Modal';
 
 interface NewProjectDialogProps {
@@ -15,13 +16,13 @@ export function NewProjectDialog({ onClose, onSubmit }: NewProjectDialogProps) {
 
   return (
     <Modal
-      title="New project"
+      title={t('newProject.title')}
       onClose={onClose}
       width={480}
       footer={
         <>
           <button className="ghost-button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             className="primary-button"
@@ -34,32 +35,32 @@ export function NewProjectDialog({ onClose, onSubmit }: NewProjectDialogProps) {
               })
             }
           >
-            Create project
+            {t('newProject.create')}
           </button>
         </>
       }
     >
       <div className="form-grid">
         <label className="field">
-          <span>Project name</span>
+          <span>{t('newProject.name')}</span>
           <input
             autoFocus
             value={name}
-            placeholder="e.g. Neon Arcade"
+            placeholder={t('newProject.namePlaceholder')}
             onChange={(event) => setName(event.target.value)}
           />
         </label>
         <label className="field">
-          <span>Asset output folder</span>
+          <span>{t('newProject.outputFolder')}</span>
           <input value={assetOutputFolder} onChange={(event) => setAssetOutputFolder(event.target.value)} />
         </label>
         <div className="field-row">
           <label className="field">
-            <span>Default width (px)</span>
+            <span>{t('field.defaultWidth')}</span>
             <input type="number" value={width} onChange={(event) => setWidth(Number(event.target.value))} />
           </label>
           <label className="field">
-            <span>Default height (px)</span>
+            <span>{t('field.defaultHeight')}</span>
             <input type="number" value={height} onChange={(event) => setHeight(Number(event.target.value))} />
           </label>
         </div>

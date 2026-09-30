@@ -1,7 +1,24 @@
-import type { BackgroundKind, BrushSettings, LayerKind, LayerState } from '../types';
+import type { BackgroundKind, GuideShape, LayerKind, LayerState, ShapePaint, Tool, ToolSettings } from '../types';
+import { isShapeTool } from '../types';
 import { hexToRgb, rgbToHex } from '../utils/color';
 import { createId } from '../utils/id';
 import { getCheckerPattern, getPaperPattern, BACKGROUND_COLORS } from './patterns';
+import { trimCanvas } from './trim';
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface ShapeState {
+  tool: Tool;
+  settings: ToolSettings;
+  start: Point;
+  last: Point;
+  points: Point[];
+  control: Point | null;
+  phase: 'drag' | 'bend' | 'polygon';
+}
 
 export interface EngineLayer {
   id: string;
@@ -25,7 +42,7 @@ interface LayerSnapshot {
 }
 
 type HistoryEntry =
-  | { type: 'pixels'; layerId: string; before: string; after: string }
+  | { type: 'pixels'; layerId: string; before: ImageData | null; after: ImageData | null }
   | { type: 'structure'; before: LayerSnapshot[]; after: LayerSnapshot[]; activeBefore: string; activeAfter: string };
 
 export interface RenderView {
@@ -35,9 +52,12 @@ export interface RenderView {
   showGrid: boolean;
   gridSize: number;
   showReferences: boolean;
+  guide: GuideShape;
 }
 
 const MAX_HISTORY = 60;
+/** Soft memory cap for pixel history (before/after ImageData snapshots). */
+const MAX_HISTORY_BYTES = 192 * 1024 * 1024;
 
 function createLayerCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -54,16 +74,23 @@ export class DrawingEngine {
   private activeLayerId = '';
   private history: HistoryEntry[] = [];
   private cursor = 0;
-  private strokeBefore = '';
+  private strokeBefore: ImageData | null = null;
   private strokeDirty = false;
-  private strokeLast: { x: number; y: number } | null = null;
+  private strokeLast: Point | null = null;
+  private pendingStructureBefore: LayerSnapshot[] | null = null;
+  private shape: ShapeState | null = null;
+  private previewCanvas = document.createElement('canvas');
+  private previewCtx = this.previewCanvas.getContext('2d')!;
   private version = 0;
+  private loadToken = 0;
   private listeners = new Set<() => void>();
 
   constructor(width: number, height: number, background: BackgroundKind = 'white') {
     this.width = width;
     this.height = height;
     this.background = background;
+    this.previewCanvas.width = width;
+    this.previewCanvas.height = height;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -115,6 +142,8 @@ export class DrawingEngine {
     }
     this.width = width;
     this.height = height;
+    this.previewCanvas.width = width;
+    this.previewCanvas.height = height;
     this.history = [];
     this.cursor = 0;
     this.emit();
@@ -129,10 +158,30 @@ export class DrawingEngine {
     this.emit();
   }
 
+  private capture(layer: EngineLayer): ImageData | null {
+    try {
+      return layer.ctx.getImageData(0, 0, this.width, this.height);
+    } catch {
+      return null;
+    }
+  }
+
+  private historyBytes(): number {
+    let total = 0;
+    for (const entry of this.history) {
+      if (entry.type === 'pixels') {
+        total += (entry.before?.data.byteLength ?? 0) + (entry.after?.data.byteLength ?? 0);
+      } else {
+        total += (entry.before.length + entry.after.length) * 4096;
+      }
+    }
+    return total;
+  }
+
   private pushHistory(entry: HistoryEntry): void {
     this.history.splice(this.cursor);
     this.history.push(entry);
-    if (this.history.length > MAX_HISTORY) {
+    while (this.history.length > MAX_HISTORY || (this.history.length > 2 && this.historyBytes() > MAX_HISTORY_BYTES)) {
       this.history.shift();
     }
     this.cursor = this.history.length;
@@ -185,12 +234,19 @@ export class DrawingEngine {
     }
   }
 
+  private applyPixels(layerId: string, image: ImageData | null): void {
+    if (!image) return;
+    const layer = this.layers.find((item) => item.id === layerId);
+    if (!layer) return;
+    if (image.width !== layer.canvas.width || image.height !== layer.canvas.height) return;
+    layer.ctx.putImageData(image, 0, 0);
+  }
+
   async undo(): Promise<boolean> {
     if (!this.canUndo()) return false;
     const entry = this.history[this.cursor - 1];
     if (entry.type === 'pixels') {
-      const layer = this.layers.find((item) => item.id === entry.layerId);
-      if (layer) await this.loadImage(layer.canvas, entry.before);
+      this.applyPixels(entry.layerId, entry.before);
     } else {
       await this.restoreSnapshot(entry.before);
       this.activeLayerId = entry.activeBefore;
@@ -204,8 +260,7 @@ export class DrawingEngine {
     if (!this.canRedo()) return false;
     const entry = this.history[this.cursor];
     if (entry.type === 'pixels') {
-      const layer = this.layers.find((item) => item.id === entry.layerId);
-      if (layer) await this.loadImage(layer.canvas, entry.after);
+      this.applyPixels(entry.layerId, entry.after);
     } else {
       await this.restoreSnapshot(entry.after);
       this.activeLayerId = entry.activeAfter;
@@ -287,6 +342,38 @@ export class DrawingEngine {
     this.emit();
   }
 
+  /** Starts a structural edit so the next endLayerEdit() can be undone. */
+  beginLayerEdit(): void {
+    this.pendingStructureBefore = this.snapshot();
+  }
+
+  /** Commits a beginLayerEdit() as a single undoable history entry. */
+  endLayerEdit(): void {
+    const before = this.pendingStructureBefore;
+    this.pendingStructureBefore = null;
+    if (!before) return;
+    const after = this.snapshot();
+    const unchanged =
+      before.length === after.length &&
+      before.every(
+        (item, index) =>
+          item.id === after[index].id &&
+          item.name === after[index].name &&
+          item.visible === after[index].visible &&
+          item.opacity === after[index].opacity &&
+          item.locked === after[index].locked,
+      );
+    if (unchanged) return;
+    this.pushHistory({
+      type: 'structure',
+      before,
+      after,
+      activeBefore: this.activeLayerId,
+      activeAfter: this.activeLayerId,
+    });
+    this.emit();
+  }
+
   setActiveLayer(id: string): void {
     if (this.activeLayerId === id) return;
     this.activeLayerId = id;
@@ -310,25 +397,25 @@ export class DrawingEngine {
 
   // --- Drawing ---
 
-  private prepareContext(settings: BrushSettings): CanvasRenderingContext2D | null {
-    const layer = this.getActiveLayer();
-    if (!layer || layer.locked || layer.kind !== 'draw') return null;
+  private prepareContext(settings: ToolSettings): CanvasRenderingContext2D | null {
+    const layer = this.resolveDrawableLayer();
+    if (!layer) return null;
     const ctx = layer.ctx;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     return ctx;
   }
 
-  beginStroke(settings: BrushSettings, x: number, y: number): void {
-    const layer = this.getActiveLayer();
-    if (!layer || layer.locked || layer.kind !== 'draw') return;
-    this.strokeBefore = layer.canvas.toDataURL('image/png');
+  beginStroke(settings: ToolSettings, x: number, y: number): void {
+    const layer = this.resolveDrawableLayer();
+    if (!layer) return;
+    this.strokeBefore = this.capture(layer);
     this.strokeDirty = true;
     this.strokeLast = { x, y };
     this.drawDot(settings, x, y);
   }
 
-  moveStroke(settings: BrushSettings, x: number, y: number): void {
+  moveStroke(settings: ToolSettings, x: number, y: number): void {
     if (!this.strokeDirty || !this.strokeLast) return;
     const from = this.strokeLast;
     this.drawSegment(settings, from.x, from.y, x, y);
@@ -339,15 +426,238 @@ export class DrawingEngine {
     if (!this.strokeDirty) return;
     const layer = this.getActiveLayer();
     if (layer) {
-      const after = layer.canvas.toDataURL('image/png');
+      const after = this.capture(layer);
       this.pushHistory({ type: 'pixels', layerId: layer.id, before: this.strokeBefore, after });
     }
     this.strokeDirty = false;
+    this.strokeBefore = null;
     this.strokeLast = null;
     this.emit();
   }
 
-  private drawDot(settings: BrushSettings, x: number, y: number): void {
+  // --- Shapes ---
+
+  beginShape(tool: Tool, settings: ToolSettings, x: number, y: number): void {
+    if (!isShapeTool(tool)) return;
+    const start = { x, y };
+    this.shape = {
+      tool,
+      settings,
+      start,
+      last: start,
+      points: tool === 'polygon' ? [{ x, y }] : [start],
+      control: null,
+      phase: tool === 'polygon' ? 'polygon' : 'drag',
+    };
+    this.clearPreview();
+    this.drawShape(this.previewCtx, this.shape);
+    this.emit();
+  }
+
+  updateShape(x: number, y: number): void {
+    if (!this.shape) return;
+    this.shape.last = { x, y };
+    this.redrawPreview();
+  }
+
+  setShapeControl(x: number, y: number): void {
+    if (!this.shape) return;
+    this.shape.control = { x, y };
+    this.redrawPreview();
+  }
+
+  addPolygonPoint(x: number, y: number): void {
+    if (!this.shape || this.shape.tool !== 'polygon') return;
+    this.shape.points.push({ x, y });
+    this.shape.last = { x, y };
+    this.redrawPreview();
+  }
+
+  private redrawPreview(): void {
+    this.clearPreview();
+    if (this.shape) this.drawShape(this.previewCtx, this.shape);
+    this.emit();
+  }
+
+  isShaping(): boolean {
+    return this.shape !== null;
+  }
+
+  isPolygonShaping(): boolean {
+    return this.shape?.tool === 'polygon';
+  }
+
+  isCurveBending(): boolean {
+    return this.shape?.tool === 'curve' && this.shape.phase === 'bend';
+  }
+
+  cancelShape(): void {
+    if (!this.shape) return;
+    this.shape = null;
+    this.clearPreview();
+    this.emit();
+  }
+
+  endShape(): void {
+    const shape = this.shape;
+    if (!shape) return;
+    if (shape.phase === 'polygon') return;
+    if (shape.tool === 'curve' && shape.phase === 'drag') {
+      shape.phase = 'bend';
+      return;
+    }
+    this.commitShape(shape);
+  }
+
+  finishCurve(): void {
+    if (!this.shape) return;
+    this.commitShape(this.shape);
+  }
+
+  finishPolygon(): void {
+    const shape = this.shape;
+    if (!shape || shape.tool !== 'polygon') return;
+    if (shape.points.length < 2) {
+      this.cancelShape();
+      return;
+    }
+    shape.last = shape.points[0];
+    this.commitShape(shape);
+  }
+
+  private commitShape(shape: ShapeState): void {
+    const layer = this.resolveDrawableLayer();
+    if (!layer) {
+      this.shape = null;
+      this.clearPreview();
+      return;
+    }
+    const before = this.capture(layer);
+    this.drawShape(layer.ctx, shape);
+    const after = this.capture(layer);
+    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after });
+    this.shape = null;
+    this.clearPreview();
+    this.emit();
+  }
+
+  private clearPreview(): void {
+    this.previewCtx.setTransform(1, 0, 0, 1, 0, 0);
+    this.previewCtx.clearRect(0, 0, this.width, this.height);
+  }
+
+  private resolveShapeColor(paint: ShapePaint, settings: ToolSettings): string | null {
+    if (paint === 'none') return null;
+    return paint === 'color2' ? settings.color2 : settings.color;
+  }
+
+  private drawShape(ctx: CanvasRenderingContext2D, shape: ShapeState): void {
+    const { settings } = shape;
+    const outline = this.resolveShapeColor(settings.shapeOutline, settings);
+    const fill = this.resolveShapeColor(settings.shapeFill, settings);
+    ctx.save();
+    ctx.lineWidth = Math.max(1, settings.size);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = outline ?? 'transparent';
+    ctx.fillStyle = fill ?? 'transparent';
+
+    const { start, last } = shape;
+    const left = Math.min(start.x, last.x);
+    const top = Math.min(start.y, last.y);
+    const w = Math.abs(last.x - start.x);
+    const h = Math.abs(last.y - start.y);
+
+    const commitPath = (path: () => void) => {
+      ctx.beginPath();
+      path();
+      if (fill) ctx.fill();
+      if (outline) ctx.stroke();
+    };
+
+    switch (shape.tool) {
+      case 'line':
+        commitPath(() => {
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(last.x, last.y);
+        });
+        break;
+      case 'curve': {
+        const control = shape.control ?? { x: (start.x + last.x) / 2, y: (start.y + last.y) / 2 };
+        commitPath(() => {
+          ctx.moveTo(start.x, start.y);
+          ctx.quadraticCurveTo(control.x, control.y, last.x, last.y);
+        });
+        break;
+      }
+      case 'rect':
+      case 'roundRect': {
+        const radius = shape.tool === 'roundRect' ? Math.min(24, w / 4, h / 4) : 0;
+        commitPath(() => {
+          if (radius > 0) {
+            ctx.moveTo(left + radius, top);
+            ctx.arcTo(left + w, top, left + w, top + h, radius);
+            ctx.arcTo(left + w, top + h, left, top + h, radius);
+            ctx.arcTo(left, top + h, left, top, radius);
+            ctx.arcTo(left, top, left + w, top, radius);
+            ctx.closePath();
+          } else {
+            ctx.rect(left, top, w, h);
+          }
+        });
+        break;
+      }
+      case 'ellipse':
+        commitPath(() => {
+          ctx.ellipse(left + w / 2, top + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, Math.PI * 2);
+        });
+        break;
+      case 'triangle':
+        commitPath(() => {
+          ctx.moveTo(left + w / 2, top);
+          ctx.lineTo(left + w, top + h);
+          ctx.lineTo(left, top + h);
+          ctx.closePath();
+        });
+        break;
+      case 'polygon': {
+        const pts = shape.phase === 'polygon' ? [...shape.points, last] : shape.points;
+        if (pts.length < 2) break;
+        commitPath(() => {
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+          ctx.closePath();
+        });
+        break;
+      }
+      default:
+        break;
+    }
+    ctx.restore();
+  }
+
+  // --- Text ---
+
+  drawText(text: string, x: number, y: number, settings: ToolSettings): void {
+    if (!text.trim()) return;
+    const layer = this.resolveDrawableLayer();
+    if (!layer) return;
+    const before = this.capture(layer);
+    const ctx = layer.ctx;
+    ctx.save();
+    ctx.fillStyle = settings.color;
+    ctx.textBaseline = 'top';
+    ctx.font = `${settings.fontSize}px ${settings.fontFamily}`;
+    const lineHeight = settings.fontSize * 1.25;
+    text.split('\n').forEach((line, index) => {
+      ctx.fillText(line, x, y + index * lineHeight);
+    });
+    ctx.restore();
+    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after: this.capture(layer) });
+    this.emit();
+  }
+
+  private drawDot(settings: ToolSettings, x: number, y: number): void {
     const ctx = this.prepareContext(settings);
     if (!ctx) return;
     const erase = settings.tool === 'eraser';
@@ -365,7 +675,7 @@ export class DrawingEngine {
     ctx.restore();
   }
 
-  private drawSegment(settings: BrushSettings, ax: number, ay: number, bx: number, by: number): void {
+  private drawSegment(settings: ToolSettings, ax: number, ay: number, bx: number, by: number): void {
     const ctx = this.prepareContext(settings);
     if (!ctx) return;
     const erase = settings.tool === 'eraser';
@@ -397,7 +707,7 @@ export class DrawingEngine {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    settings: BrushSettings,
+    settings: ToolSettings,
     erase: boolean,
   ): void {
     const radius = Math.max(0.5, settings.size / 2);
@@ -429,17 +739,17 @@ export class DrawingEngine {
   }
 
   clearActiveLayer(): void {
-    const layer = this.getActiveLayer();
-    if (!layer || layer.locked) return;
-    const before = layer.canvas.toDataURL('image/png');
+    const layer = this.resolveDrawableLayer();
+    if (!layer) return;
+    const before = this.capture(layer);
     layer.ctx.clearRect(0, 0, this.width, this.height);
-    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after: layer.canvas.toDataURL('image/png') });
+    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after: this.capture(layer) });
     this.emit();
   }
 
   fillAt(x: number, y: number, color: string, tolerance = 32): void {
-    const layer = this.getActiveLayer();
-    if (!layer || layer.locked || layer.kind !== 'draw') return;
+    const layer = this.resolveDrawableLayer();
+    if (!layer) return;
     const sx = Math.floor(x);
     const sy = Math.floor(y);
     if (sx < 0 || sy < 0 || sx >= this.width || sy >= this.height) return;
@@ -471,7 +781,7 @@ export class DrawingEngine {
       return;
     }
 
-    const before = layer.canvas.toDataURL('image/png');
+    const before = new ImageData(new Uint8ClampedArray(data), this.width, this.height);
     const visited = new Uint8Array(this.width * this.height);
     const stack: number[] = [sx, sy];
 
@@ -518,7 +828,7 @@ export class DrawingEngine {
     }
 
     ctx.putImageData(image, 0, 0);
-    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after: layer.canvas.toDataURL('image/png') });
+    this.pushHistory({ type: 'pixels', layerId: layer.id, before, after: image });
     this.emit();
   }
 
@@ -613,13 +923,55 @@ export class DrawingEngine {
     }
     ctx.globalAlpha = 1;
 
+    if (this.shape) {
+      ctx.globalAlpha = 1;
+      ctx.drawImage(this.previewCanvas, 0, 0);
+    }
+
     if (view.showGrid) this.drawGrid(ctx, view.gridSize);
+    if (view.guide && view.guide !== 'none') this.drawGuide(ctx, view.guide);
 
     ctx.restore();
 
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
     ctx.lineWidth = 1;
     ctx.strokeRect(view.panX + 0.5, view.panY + 0.5, this.width * view.zoom, this.height * view.zoom);
+  }
+
+  /** Non-printing composition guides (circle / hexagon / diamond overlays). */
+  private drawGuide(ctx: CanvasRenderingContext2D, guide: GuideShape): void {
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(217, 70, 165, 0.85)';
+    ctx.lineWidth = 1 / Math.max(0.2, ctx.getTransform().a);
+    ctx.setLineDash([6 / Math.max(0.2, ctx.getTransform().a), 4 / Math.max(0.2, ctx.getTransform().a)]);
+    ctx.beginPath();
+
+    if (guide === 'circle') {
+      ctx.ellipse(cx, cy, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+    } else if (guide === 'hexagon') {
+      const rx = this.width / 2;
+      const ry = this.height / 2;
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (Math.PI / 3) * i - Math.PI / 2;
+        const px = cx + rx * Math.cos(angle);
+        const py = cy + ry * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    } else {
+      // diamond — connects the edge midpoints (isometric feel)
+      ctx.moveTo(cx, 0);
+      ctx.lineTo(this.width, cy);
+      ctx.lineTo(cx, this.height);
+      ctx.lineTo(0, cy);
+      ctx.closePath();
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   private drawGrid(ctx: CanvasRenderingContext2D, gridSize: number): void {
@@ -643,26 +995,13 @@ export class DrawingEngine {
     ctx.restore();
   }
 
-  async exportBlob(): Promise<Blob | null> {
+  async exportBlob(options?: { trim?: boolean }): Promise<Blob | null> {
     const canvas = document.createElement('canvas');
     this.renderFull(canvas, { includeBackground: true, includeReferences: false });
+    const output = options?.trim ? trimCanvas(canvas) : canvas;
     return new Promise((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/png');
+      output.toBlob((blob) => resolve(blob), 'image/png');
     });
-  }
-
-  thumbnail(maxSize = 200): string {
-    const full = document.createElement('canvas');
-    this.renderFull(full, { includeBackground: true, includeReferences: false });
-    const scale = Math.min(1, maxSize / Math.max(this.width, this.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(this.width * scale));
-    canvas.height = Math.max(1, Math.round(this.height * scale));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(full, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/png');
   }
 
   // --- Serialization ---
@@ -680,14 +1019,23 @@ export class DrawingEngine {
   }
 
   async loadFromLayers(states: LayerState[], background: BackgroundKind): Promise<void> {
+    // Guard against overlapping loads (e.g. React StrictMode mounting twice):
+    // every layer is built locally and only committed if this is still the most
+    // recent load, so layers can never be duplicated or appended twice.
+    const token = ++this.loadToken;
     this.background = background;
-    this.layers = [];
+
+    const seen = new Set<string>();
+    const built: EngineLayer[] = [];
     for (const state of states) {
+      if (seen.has(state.id)) continue;
+      seen.add(state.id);
       const canvas = createLayerCanvas(this.width, this.height);
       const ctx = canvas.getContext('2d');
       if (!ctx) continue;
       await this.loadImage(canvas, state.dataUrl);
-      this.layers.push({
+      if (token !== this.loadToken) return;
+      built.push({
         id: state.id,
         name: state.name,
         kind: state.kind,
@@ -698,9 +1046,12 @@ export class DrawingEngine {
         ctx,
       });
     }
-    if (!this.layers.some((layer) => layer.kind === 'draw')) {
+
+    if (token !== this.loadToken) return;
+
+    if (!built.some((layer) => layer.kind === 'draw')) {
       const canvas = createLayerCanvas(this.width, this.height);
-      this.layers.push({
+      built.push({
         id: createId('layer'),
         name: 'Paint',
         kind: 'draw',
@@ -711,21 +1062,25 @@ export class DrawingEngine {
         ctx: canvas.getContext('2d')!,
       });
     }
-    this.activeLayerId = [...this.layers].reverse().find((layer) => layer.kind === 'draw')?.id ?? this.layers[0]?.id ?? '';
+
+    this.layers = built;
+    this.activeLayerId =
+      [...this.layers].reverse().find((layer) => layer.kind === 'draw')?.id ?? this.layers[0]?.id ?? '';
     this.history = [];
     this.cursor = 0;
     this.emit();
   }
 
-  isEmpty(): boolean {
-    return this.layers.every((layer) => {
-      if (layer.kind !== 'draw') return true;
-      const ctx = layer.ctx;
-      const data = ctx.getImageData(0, 0, this.width, this.height).data;
-      for (let i = 3; i < data.length; i += 4) {
-        if (data[i] !== 0) return false;
-      }
-      return true;
-    });
+  /** Returns a layer that can be painted on, switching the active layer if needed. */
+  private resolveDrawableLayer(): EngineLayer | null {
+    const current = this.getActiveLayer();
+    if (current && current.kind === 'draw' && !current.locked) return current;
+    const fallback = [...this.layers].reverse().find((layer) => layer.kind === 'draw' && !layer.locked);
+    if (!fallback) return null;
+    if (fallback.id !== this.activeLayerId) {
+      this.activeLayerId = fallback.id;
+      this.emit();
+    }
+    return fallback;
   }
 }
