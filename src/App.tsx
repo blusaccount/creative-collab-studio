@@ -291,6 +291,21 @@ function App() {
     });
   };
 
+  const handleResetDemo = () => {
+    setConfirmState({
+      title: t('app.confirm.resetDemo.title'),
+      message: t('app.confirm.resetDemo.body'),
+      confirmLabel: t('app.confirm.resetDemo.confirm'),
+      danger: true,
+      onConfirm: async () => {
+        await studio.resetDemoData();
+        setConfirmState(null);
+        setViewMode('editor');
+        notify(t('toast.demoReset'), 'success');
+      },
+    });
+  };
+
   if (studio.loading) {
     return (
       <div className="app-loading">
@@ -568,6 +583,10 @@ function App() {
           onDelete={() => {
             setShowProjectSettings(false);
             handleDeleteProject();
+          }}
+          onResetDemo={() => {
+            setShowProjectSettings(false);
+            handleResetDemo();
           }}
         />
       ) : null}

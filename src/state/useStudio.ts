@@ -14,6 +14,7 @@ import { createDefaultLayerStates } from '../drawing/factory';
 import { buildSceneFromBlueprint } from '../scenes/build';
 import { t } from '../i18n';
 import { createId } from '../utils/id';
+import { resetDatabase } from '../storage/db';
 import {
   DEFAULT_SETTINGS,
   bootstrapStudio,
@@ -25,6 +26,7 @@ import {
   removeProject,
   removeScene,
   removeTicket,
+  type StudioSnapshot,
 } from '../storage/repository';
 
 export interface NewTicketInput {
@@ -54,35 +56,36 @@ export function useStudio() {
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const bootstrapped = useRef(false);
 
+  const applySnapshot = useCallback((snapshot: StudioSnapshot) => {
+    setProjects(snapshot.projects);
+    setTickets(snapshot.tickets);
+    setScenes(snapshot.scenes);
+    setSettings(snapshot.settings);
+    const storedProject = snapshot.settings.lastProjectId;
+    const project = snapshot.projects.find((item) => item.id === storedProject) ?? snapshot.projects[0];
+    setActiveProjectId(project?.id ?? '');
+    const projectTickets = snapshot.tickets.filter((ticket) => ticket.projectId === project?.id);
+    const storedTicket = snapshot.settings.lastTicketId;
+    const ticket =
+      projectTickets.find((item) => item.id === storedTicket) ??
+      [...projectTickets].sort((a, b) => a.order - b.order)[0];
+    setActiveTicketId(ticket?.id ?? null);
+    const projectScenes = snapshot.scenes.filter((scene) => scene.projectId === project?.id);
+    const storedScene = snapshot.settings.lastSceneId;
+    const scene = projectScenes.find((item) => item.id === storedScene) ?? projectScenes[0];
+    setActiveSceneId(scene?.id ?? null);
+  }, []);
+
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
     bootstrapStudio()
-      .then((snapshot) => {
-        setProjects(snapshot.projects);
-        setTickets(snapshot.tickets);
-        setScenes(snapshot.scenes);
-        setSettings(snapshot.settings);
-        const storedProject = snapshot.settings.lastProjectId;
-        const project =
-          snapshot.projects.find((item) => item.id === storedProject) ?? snapshot.projects[0];
-        setActiveProjectId(project?.id ?? '');
-        const projectTickets = snapshot.tickets.filter((ticket) => ticket.projectId === project?.id);
-        const storedTicket = snapshot.settings.lastTicketId;
-        const ticket =
-          projectTickets.find((item) => item.id === storedTicket) ??
-          [...projectTickets].sort((a, b) => a.order - b.order)[0];
-        setActiveTicketId(ticket?.id ?? null);
-        const projectScenes = snapshot.scenes.filter((scene) => scene.projectId === project?.id);
-        const storedScene = snapshot.settings.lastSceneId;
-        const scene = projectScenes.find((item) => item.id === storedScene) ?? projectScenes[0];
-        setActiveSceneId(scene?.id ?? null);
-      })
+      .then(applySnapshot)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : t('toast.loadFailed'));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [applySnapshot]);
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null,
@@ -473,6 +476,17 @@ export function useStudio() {
 
   const clearError = useCallback(() => setError(null), []);
 
+  /** Wipes all local data and rebuilds the curated demo state (for a clean demo run). */
+  const resetDemoData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await resetDatabase();
+      applySnapshot(await bootstrapStudio());
+    } finally {
+      setLoading(false);
+    }
+  }, [applySnapshot]);
+
   return {
     loading,
     error,
@@ -507,6 +521,7 @@ export function useStudio() {
     selectScene,
     completeScene,
     updateScene,
+    resetDemoData,
   };
 }
 
