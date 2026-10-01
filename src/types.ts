@@ -54,6 +54,8 @@ export interface Ticket {
   layers: LayerState[];
   background: BackgroundKind;
   version: number;
+  /** Signature of the artwork at the last export, so exports don't inflate the version. */
+  lastExportHash?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;

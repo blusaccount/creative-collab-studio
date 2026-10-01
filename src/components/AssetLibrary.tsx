@@ -68,7 +68,6 @@ export function AssetLibrary({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const toggle = (id: string) => {

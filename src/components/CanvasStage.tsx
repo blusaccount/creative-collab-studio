@@ -60,7 +60,9 @@ export function CanvasStage({
     if (!wrapper) return;
     const width = wrapper.clientWidth;
     const height = wrapper.clientHeight;
+    if (width <= 0 || height <= 0) return;
     const { width: artWidth, height: artHeight } = engine.getSize();
+    if (artWidth <= 0 || artHeight <= 0) return;
     const zoom = Math.min((width - PADDING) / artWidth, (height - PADDING) / artHeight, 4);
     const clamped = Math.max(MIN_ZOOM, zoom);
     onViewChange({

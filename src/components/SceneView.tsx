@@ -105,14 +105,23 @@ export function SceneView({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !activeScene) return;
-    canvas.width = activeScene.canvas.width;
-    canvas.height = activeScene.canvas.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
     let cancelled = false;
-    void drawScene(ctx, activeScene, ticketById, true).catch(() => {
-      if (!cancelled) notify(t('toast.sceneRenderFailed'), 'error');
-    });
+    // Render offscreen first so a superseded render can never paint the visible canvas.
+    const offscreen = document.createElement('canvas');
+    offscreen.width = activeScene.canvas.width;
+    offscreen.height = activeScene.canvas.height;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) return;
+    void drawScene(ctx, activeScene, ticketById, true)
+      .then(() => {
+        if (cancelled || canvasRef.current !== canvas) return;
+        canvas.width = offscreen.width;
+        canvas.height = offscreen.height;
+        canvas.getContext('2d')?.drawImage(offscreen, 0, 0);
+      })
+      .catch(() => {
+        if (!cancelled) notify(t('toast.sceneRenderFailed'), 'error');
+      });
     return () => {
       cancelled = true;
     };
@@ -172,9 +181,8 @@ export function SceneView({
         const parsed = JSON.parse(String(reader.result));
         const blueprint = validateBlueprint(parsed);
         if (!blueprint) throw new Error(t('toast.invalidBlueprint'));
+        // The parent import handler owns the success/duplicate notification.
         onImportBlueprint(blueprint);
-        const count = (blueprint.assets?.length ?? 0) + (blueprint.maps?.length ?? 0);
-        notify(t('toast.blueprintImported', { name: blueprint.name, count }), 'success');
       } catch (error) {
         notify(error instanceof Error ? error.message : t('toast.importFailed'), 'error');
       }

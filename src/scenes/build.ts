@@ -537,7 +537,8 @@ export function validateBlueprintReport(value: unknown): { blueprint: SceneBluep
   return { blueprint, report };
 }
 
-/** Convenience wrapper returning only the (validated) blueprint. */
+/** Convenience wrapper: returns the blueprint only when there are no blocking errors. */
 export function validateBlueprint(value: unknown): SceneBlueprint | null {
-  return validateBlueprintReport(value).blueprint;
+  const { blueprint, report } = validateBlueprintReport(value);
+  return report.errors.length === 0 ? blueprint : null;
 }

@@ -27,6 +27,7 @@ import { t } from '../i18n';
 import { createPartUvTemplate } from '../scenes/build';
 import { mapColorSpace, mapDefaultBackground, mapPurposeKey, packingHintKey } from '../scenes/maps';
 import { buildAssetFilename } from '../utils/naming';
+import { hashLayers } from '../utils/hash';
 import { downloadBlob } from '../utils/download';
 import { composeTemplatePng, composeTemplatePsd, isPsdFile, readImageToCanvas, readPsdToCanvas } from '../utils/psd';
 import { CanvasStage } from './CanvasStage';
@@ -390,6 +391,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   );
 
   const handleExport = useCallback(async () => {
+    const exportLayers = engine.serializeLayers();
     const blob = await engine.exportBlob({ trim: studioSettings.trimOnExport });
     if (!blob) {
       notify(t('editor.toast.exportFailed'), 'error');
@@ -400,7 +402,10 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         ? { ...ticket, mapType: activeMaterialChannelRef.current, title: t(`map.${activeMaterialChannelRef.current}` as const) }
         : ticket;
     downloadBlob(blob, buildAssetFilename(exportTicket, project, studioSettings));
-    await onUpdateTicket(ticket.id, { ...snapshotLayers(), version: ticket.version + 1 });
+    // Only bump the version when the exported artwork actually changed.
+    const exportHash = hashLayers(exportLayers);
+    const version = exportHash === ticket.lastExportHash ? ticket.version : ticket.version + 1;
+    await onUpdateTicket(ticket.id, { ...snapshotLayers(), version, lastExportHash: exportHash }, { touch: false });
     notify(t('toast.exported'), 'success');
   }, [engine, ticket, materialChannels.length, project, studioSettings, onUpdateTicket, notify, snapshotLayers]);
 

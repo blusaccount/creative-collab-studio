@@ -117,12 +117,15 @@ export interface StudioSnapshot {
 }
 
 export async function bootstrapStudio(): Promise<StudioSnapshot> {
-  let [projects, tickets, scenes, metaRecords] = await Promise.all([
+  const [storedProjects, storedTickets, storedScenes, metaRecords] = await Promise.all([
     getAllRecords<Project>(STORE_PROJECTS),
     getAllRecords<Ticket>(STORE_TICKETS),
     getAllRecords<Scene>(STORE_SCENES),
     getAllRecords<StudioMeta>(STORE_META),
   ]);
+  let projects = storedProjects;
+  let tickets = storedTickets;
+  let scenes = storedScenes;
 
   if (projects.length === 0) {
     const project = createSeedProject();
@@ -294,9 +297,13 @@ export async function bootstrapStudio(): Promise<StudioSnapshot> {
   }
 
   // Repair records corrupted by an older duplicate-layer bug, then persist the fix.
-  const repaired = tickets.filter(
-    (ticket, index) => ticket.layers.length !== (rawTickets[index]?.layers?.length ?? 0),
-  );
+  // Match by id: `tickets` is consolidated/split/reordered above, so array indices
+  // no longer line up with the pre-migration snapshot.
+  const rawById = new Map(rawTickets.map((ticket) => [ticket.id, ticket]));
+  const repaired = tickets.filter((ticket) => {
+    const raw = rawById.get(ticket.id);
+    return raw ? ticket.layers.length !== (raw.layers?.length ?? 0) : false;
+  });
   if (repaired.length > 0) {
     await putRecords(STORE_TICKETS, tickets);
   }
