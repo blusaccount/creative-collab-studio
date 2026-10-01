@@ -7,6 +7,7 @@ import { slugify } from '../utils/naming';
 import { downloadBlob } from '../utils/download';
 import { Icon } from './Icon';
 import { BlueprintImportDialog } from './BlueprintImportDialog';
+import { ConfirmDialog } from './Modal';
 
 interface SceneViewProps {
   project: Project | null;
@@ -88,6 +89,7 @@ export function SceneView({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
 
   const ticketById = useMemo(() => new Map(tickets.map((ticket) => [ticket.id, ticket])), [tickets]);
 
@@ -265,14 +267,7 @@ export function SceneView({
           <button className="ghost-button" onClick={handleExportBlueprint}>
             <Icon name="save" size={15} /> {t('scene.exportPlan')}
           </button>
-          <button
-            className="ghost-button danger-text"
-            onClick={() => {
-              if (window.confirm(t('scene.deleteConfirm', { name: activeScene.name, count: total }))) {
-                onDeleteScene(activeScene.id);
-              }
-            }}
-          >
+          <button className="ghost-button danger-text" onClick={() => setShowDelete(true)}>
             <Icon name="trash" size={15} /> {t('scene.delete')}
           </button>
           <button className="ghost-button" onClick={handleExport} disabled={exporting}>
@@ -360,6 +355,20 @@ export function SceneView({
           event.target.value = '';
         }}
       />
+
+      {showDelete ? (
+        <ConfirmDialog
+          title={t('confirm.deleteGroup.title')}
+          message={t('scene.deleteConfirm', { name: activeScene.name, count: total })}
+          confirmLabel={t('common.delete')}
+          danger
+          onCancel={() => setShowDelete(false)}
+          onConfirm={() => {
+            setShowDelete(false);
+            onDeleteScene(activeScene.id);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
