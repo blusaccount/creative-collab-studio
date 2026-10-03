@@ -9,8 +9,6 @@ interface GroupListProps {
   activeGroupId: string | 'all';
   onSelect: (id: string | 'all') => void;
   onOpenGuide: () => void;
-  onLoadModelDemo: () => void;
-  onLoadPaintedDemo: () => void;
 }
 
 export function GroupList({
@@ -19,8 +17,6 @@ export function GroupList({
   activeGroupId,
   onSelect,
   onOpenGuide,
-  onLoadModelDemo,
-  onLoadPaintedDemo,
 }: GroupListProps) {
   const counts = useMemo(() => {
     const map = new Map<string, { done: number; total: number }>();
@@ -41,22 +37,6 @@ export function GroupList({
       <div className="group-head">
         <h2>{t('set.groups')}</h2>
         <div className="group-head-actions">
-          <button
-            className="icon-button"
-            title={t('model.loadDemo')}
-            aria-label={t('model.loadDemo')}
-            onClick={onLoadModelDemo}
-          >
-            <Icon name="cube" size={15} />
-          </button>
-          <button
-            className="icon-button"
-            title={t('model.loadPaintedDemo')}
-            aria-label={t('model.loadPaintedDemo')}
-            onClick={onLoadPaintedDemo}
-          >
-            <Icon name="brush" size={15} />
-          </button>
           <button className="icon-button" title={t('app.aiGuide')} aria-label={t('app.aiGuide')} onClick={onOpenGuide}>
             <Icon name="bot" size={15} />
           </button>

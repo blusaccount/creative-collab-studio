@@ -107,7 +107,9 @@ This is the core loop the tool is built around:
 4. **The scene assembles** — the **Scene** board composites every completed asset into its layout slot in real time, tracks progress, and marks the scene finished when all assets are committed.
 5. **Delivery** — export the finished scene composite as a PNG, or export the whole blueprint back out as JSON.
 
-A ready-made scene (*Dungeon Crawler — Entrance Chamber*, 11 assets) is auto-loaded on first run so the loop is immediately testable.
+## Demo
+
+On first run (and after **Project settings → Reset demo**) the app loads a curated demo: the *Dungeon Crawler — Entrance Chamber* scene mid-production (8 of 11 assets done, one waiting for review, one to paint live) and the *Player – Ritter* model split into part tickets. Finished artwork is read from `public/demo/dungeon/` (see the README there); missing files show a clearly marked placeholder. The click-by-click script is in `presentation/DEMO_SCRIPT.md`, and `presentation/demo-blueprint.json` is the AI plan to paste during the demo.
 
 ## Development
 
@@ -122,6 +124,8 @@ npm run dev
 npm run dev
 npm run build
 npm run preview
+npm test
+npm run lint
 ```
 
 ## Roadmap

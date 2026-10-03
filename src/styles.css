@@ -1175,19 +1175,21 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.stage-wrap.material-mode .canvas-stage {
-  top: 50px;
+.stage-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 .stage-wrap.painting-model .canvas-stage {
   display: none;
 }
 .canvas-model-view {
   position: absolute;
-  inset: 50px 0 0;
+  inset: 0;
   display: flex;
   min-width: 0;
   min-height: 0;
-  padding: 10px;
+  padding: 10px 10px 10px 58px; /* keep clear of the brush sliders */
   background:
     radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent-soft) 62%, transparent), transparent 68%),
     var(--canvas-bg);
@@ -1271,6 +1273,31 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--text-dim);
   font-size: 12.5px;
   line-height: 1.55;
+}
+.ticket-criteria {
+  border-left: 2px solid var(--accent);
+  padding: 2px 0 2px 10px;
+}
+.ticket-criteria-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ticket-criteria ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.priority-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.priority-tag.high {
+  color: var(--danger, #c42b1c);
 }
 .ticket-header-actions {
   display: flex;

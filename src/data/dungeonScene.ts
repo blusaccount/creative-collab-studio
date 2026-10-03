@@ -6,6 +6,7 @@ import type { SceneBlueprint } from '../types';
  * Art-Anforderung mit Abmessungen, Mal-Briefing und Platz in der Szenenkomposition.
  */
 export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
+  id: 'dungeon-entrance',
   name: 'Dungeon-Crawler — Eingangshalle',
   description:
     'Der erste Raum, den der Spieler betritt: eine feuchte Steinhalle mit einer eisenbeschlagenen Tür, die tiefer in die Festung führt. Fackelbeleuchtet, ruhig, ein wenig bedrohlich.',
@@ -14,7 +15,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
   canvas: { width: 960, height: 540, background: '#0b0d12' },
   assets: [
     {
+      id: 'stone-wall',
       title: 'Steinwand-Blöcke (nahtlos)',
+      priority: 'high',
+      acceptanceCriteria: ['Kachelt nahtlos an allen vier Kanten', 'Bleibt dunkel genug, damit Fackellicht wirkt', 'Moos nur in der unteren Hälfte'],
       type: 'texture',
       dimensions: { width: 512, height: 512 },
       background: 'white',
@@ -23,7 +27,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 0, y: 0, width: 960, height: 330, layer: 0 },
     },
     {
+      id: 'floor-tiles',
       title: 'Bodenplatten (nahtlos)',
+      priority: 'high',
+      acceptanceCriteria: ['Kachelt nahtlos', 'Heller und wärmer als die Wand', 'Keine starken Einzelmotive, die sich sichtbar wiederholen'],
       type: 'texture',
       dimensions: { width: 512, height: 512 },
       background: 'white',
@@ -32,7 +39,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 0, y: 330, width: 960, height: 210, layer: 1 },
     },
     {
+      id: 'iron-door',
       title: 'Eisenbeschlagene Türöffnung',
+      priority: 'high',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Bogen dunkler als die Wand', 'Ringgriff klar lesbar'],
       type: 'prop',
       dimensions: { width: 256, height: 384 },
       background: 'transparent',
@@ -41,7 +51,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 384, y: 84, width: 192, height: 276, layer: 2 },
     },
     {
+      id: 'banner',
       title: 'Hängendes Banner',
+      priority: 'medium',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Sigill auf 64 px noch erkennbar'],
       type: 'prop',
       dimensions: { width: 160, height: 320 },
       background: 'transparent',
@@ -50,7 +63,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 150, y: 48, width: 140, height: 280, layer: 3 },
     },
     {
+      id: 'torch-holder',
       title: 'Wandfackel-Halterung',
+      priority: 'medium',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Fackel unangezündet (Flamme ist ein eigenes Asset)'],
       type: 'prop',
       dimensions: { width: 128, height: 192 },
       background: 'transparent',
@@ -59,7 +75,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 96, y: 150, width: 96, height: 160, layer: 4 },
     },
     {
+      id: 'torch-flame',
       title: 'Fackelflamme',
+      priority: 'high',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Warmer Kern, weicher Rand', 'Sitzt sauber auf der Fackel-Halterung'],
       type: 'effect',
       dimensions: { width: 128, height: 128 },
       background: 'transparent',
@@ -68,7 +87,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 112, y: 130, width: 64, height: 88, layer: 5 },
     },
     {
+      id: 'barrel',
       title: 'Holzfass',
+      priority: 'low',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Licht von der Fackelseite'],
       type: 'prop',
       dimensions: { width: 160, height: 192 },
       background: 'transparent',
@@ -77,7 +99,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 770, y: 308, width: 134, height: 162, layer: 6 },
     },
     {
+      id: 'crate',
       title: 'Holzkiste',
+      priority: 'low',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Licht von der Fackelseite'],
       type: 'prop',
       dimensions: { width: 160, height: 160 },
       background: 'transparent',
@@ -86,7 +111,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 616, y: 332, width: 150, height: 150, layer: 7 },
     },
     {
+      id: 'treasure-chest',
       title: 'Schatztruhe',
+      priority: 'medium',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Gold liest sich auch klein als Gold', 'Schloss deutlich erkennbar'],
       type: 'prop',
       dimensions: { width: 224, height: 160 },
       background: 'transparent',
@@ -95,7 +123,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 296, y: 338, width: 214, height: 150, layer: 8 },
     },
     {
+      id: 'cobweb',
       title: 'Eck-Spinnennetz',
+      priority: 'low',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Dezent – darf nicht vom Raum ablenken'],
       type: 'prop',
       dimensions: { width: 192, height: 192 },
       background: 'transparent',
@@ -104,7 +135,10 @@ export const DUNGEON_ENTRANCE_BLUEPRINT: SceneBlueprint = {
       layout: { x: 16, y: 16, width: 180, height: 180, layer: 9 },
     },
     {
+      id: 'dust-haze',
       title: 'Staubpartikel & Lichtnebel',
+      priority: 'low',
+      acceptanceCriteria: ['Transparenter Hintergrund', 'Additiv über der Szene einsetzbar', 'Kein harter Rand'],
       type: 'effect',
       dimensions: { width: 512, height: 512 },
       background: 'transparent',

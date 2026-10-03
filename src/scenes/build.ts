@@ -59,6 +59,8 @@ interface BuiltEntry {
   map?: MapType;
   materialChannels?: SceneBlueprintMap[];
   modelPart?: UvIsland;
+  priority?: 'low' | 'medium' | 'high';
+  acceptanceCriteria?: string[];
   dimensions: { width: number; height: number };
   background: BackgroundKind;
   brief: string;
@@ -89,6 +91,8 @@ function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
             map: 'basecolor' as MapType,
             materialChannels: channels,
             modelPart: island,
+            priority: baseColor.priority,
+            acceptanceCriteria: baseColor.acceptanceCriteria,
             dimensions: {
               width: Math.max(1, Math.round(atlasDimensions.width * island.w)),
               height: Math.max(1, Math.round(atlasDimensions.height * island.h)),
@@ -107,6 +111,8 @@ function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
         status: 'backlog',
         map: 'basecolor',
         materialChannels: blueprint.maps,
+        priority: baseColor.priority,
+        acceptanceCriteria: baseColor.acceptanceCriteria,
         dimensions: baseColor.dimensions ?? { width: size.width, height: size.height },
         background: baseColor.background ?? mapDefaultBackground('basecolor'),
         brief: baseColor.brief ?? '',
@@ -119,6 +125,8 @@ function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
       type: 'texture' as TicketType,
       status: 'backlog' as TicketStatus,
       map: map.map,
+      priority: map.priority,
+      acceptanceCriteria: map.acceptanceCriteria,
       dimensions: map.dimensions ?? { width: size.width, height: size.height },
       background: map.background ?? mapDefaultBackground(map.map),
       brief: map.brief ?? '',
@@ -132,6 +140,8 @@ function entriesFromBlueprint(blueprint: SceneBlueprint): BuiltEntry[] {
     type: asset.type,
     status: asset.status ?? 'backlog',
     map: asset.map,
+    priority: asset.priority,
+    acceptanceCriteria: asset.acceptanceCriteria,
     dimensions: asset.dimensions,
     background: asset.background,
     brief: asset.brief,
@@ -151,12 +161,15 @@ export function buildSceneFromBlueprint(
 
   const items = entries.map((entry, index) => {
     const ticket: Ticket = {
-      id: entry.id ?? createId('ticket'),
+      id: createId('ticket'),
       projectId,
       sceneId,
+      blueprintAssetId: entry.id,
       mapType: entry.map,
       materialChannels: entry.materialChannels,
       modelPart: entry.modelPart,
+      priority: entry.priority,
+      acceptanceCriteria: entry.acceptanceCriteria?.length ? entry.acceptanceCriteria : undefined,
       title: entry.title,
       description: entry.brief,
       type: entry.type,
@@ -193,8 +206,9 @@ export function buildSceneFromBlueprint(
   });
 
   const scene: Scene = {
-    id: blueprint.id ?? sceneId,
+    id: sceneId,
     projectId,
+    blueprintId: blueprint.id,
     kind: blueprint.kind ?? 'scene',
     name: blueprint.name,
     description: blueprint.description,

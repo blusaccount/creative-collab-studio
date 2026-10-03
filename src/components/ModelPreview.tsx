@@ -188,7 +188,7 @@ function focusModelPart(state: PreviewState, part?: string): void {
           sumV += uv.getY(i);
         }
         const cu = sumU / uv.count;
-        const cv = sumV / uv.count;
+        const cv = state.flipY ? sumV / uv.count : 1 - sumV / uv.count;
         return cu >= island.x - 0.02 && cu <= island.x + island.w + 0.02 && cv >= vLow - 0.02 && cv <= vHigh + 0.02;
       });
     }
@@ -608,7 +608,11 @@ export function ModelPreview({
     const hit = raycaster
       .intersectObject(state.modelRoot, true)
       .find((intersection) => intersection.uv && intersection.object.visible);
-    return hit?.uv ? { u: hit.uv.x, v: hit.uv.y } : null;
+    if (!hit?.uv) return null;
+    // Callers expect a bottom-up v (procedural meshes, flipY textures). glTF
+    // files use flipY=false, where v already runs top-down — convert so paint
+    // strokes and part picks land where the cursor is.
+    return { u: hit.uv.x, v: state.flipY ? hit.uv.y : 1 - hit.uv.y };
   };
 
   const handlePaintDown = (event: React.PointerEvent<HTMLDivElement>) => {

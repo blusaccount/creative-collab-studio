@@ -37,6 +37,9 @@ export async function buildProjectState(
     ticketDocs.push({
       id: ticket.id,
       sceneId: ticket.sceneId,
+      blueprintAssetId: ticket.blueprintAssetId,
+      priority: ticket.priority,
+      acceptanceCriteria: ticket.acceptanceCriteria,
       mapType: ticket.mapType,
       title: ticket.title,
       description: ticket.description,
@@ -58,6 +61,7 @@ export async function buildProjectState(
     ).length;
     return {
       id: scene.id,
+      blueprintId: scene.blueprintId,
       kind: scene.kind,
       name: scene.name,
       description: scene.description,

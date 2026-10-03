@@ -8,6 +8,17 @@ export const STORE_META = 'meta';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
+/**
+ * Set while the database is being wiped for a reset. Pending autosaves (e.g. the
+ * editor flushing on unmount or page hide) would otherwise land after the wipe
+ * and resurrect old tickets or settings.
+ */
+let writesBlocked = false;
+
+export function blockWrites(): void {
+  writesBlocked = true;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -45,6 +56,7 @@ async function withStore<T>(
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T> | void,
 ): Promise<T | undefined> {
+  if (writesBlocked && mode === 'readwrite') return undefined;
   const db = await openDatabase();
   return new Promise<T | undefined>((resolve, reject) => {
     const transaction = db.transaction(storeName, mode);

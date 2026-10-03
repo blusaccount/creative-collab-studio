@@ -9,9 +9,16 @@ interface ProjectSettingsDialogProps {
   onClose: () => void;
   onSave: (patch: Partial<Project>) => void;
   onDelete: () => void;
+  onResetDemo: () => void;
 }
 
-export function ProjectSettingsDialog({ project, onClose, onSave, onDelete }: ProjectSettingsDialogProps) {
+export function ProjectSettingsDialog({
+  project,
+  onClose,
+  onSave,
+  onDelete,
+  onResetDemo,
+}: ProjectSettingsDialogProps) {
   const [name, setName] = useState(project.name);
   const [assetOutputFolder, setAssetOutputFolder] = useState(project.assetOutputFolder);
   const [width, setWidth] = useState(project.defaultDimensions.width);
@@ -36,6 +43,9 @@ export function ProjectSettingsDialog({ project, onClose, onSave, onDelete }: Pr
       footer={
         <>
           <div className="footer-left">
+            <button className="ghost-button" onClick={onResetDemo}>
+              <Icon name="reset" /> {t('projectSettings.resetDemo')}
+            </button>
             <button className="ghost-button danger-text" onClick={onDelete}>
               <Icon name="trash" /> {t('projectSettings.deleteProject')}
             </button>

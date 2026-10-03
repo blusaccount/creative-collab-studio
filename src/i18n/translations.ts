@@ -32,7 +32,12 @@ export const de = {
   'app.confirm.deleteProject.body':
     '„{name}“ sowie alle zugehörigen Tickets und Artworks werden dauerhaft entfernt.',
   'app.confirm.deleteProject.confirm': 'Projekt löschen',
+  'app.confirm.resetDemo.title': 'Demo zurücksetzen?',
+  'app.confirm.resetDemo.body':
+    'Alle lokalen Daten werden gelöscht und der Demo-Ausgangszustand neu geladen.',
+  'app.confirm.resetDemo.confirm': 'Demo zurücksetzen',
 
+  'toast.demoReset': 'Demo zurückgesetzt',
   'toast.ticketCreated': 'Ticket erstellt',
   'toast.ticketUpdated': 'Ticket aktualisiert',
   'toast.ticketArchived': 'Ticket archiviert',
@@ -43,7 +48,6 @@ export const de = {
   'toast.projectUpdated': 'Projekt aktualisiert',
   'toast.projectDeleted': 'Projekt gelöscht',
   'toast.sceneLoaded': 'Szene geladen — {count} Tickets generiert',
-  'toast.demoSceneExists': 'Diese Demo-Szene ist bereits vorhanden.',
   'toast.groupLoaded': 'Gruppe geladen — {count} Tickets generiert',
   'toast.stateExported': 'Projekt-Zustand exportiert',
   'toast.loadFailed': 'Studio-Daten konnten nicht geladen werden',
@@ -214,7 +218,11 @@ export const de = {
   'editor.upload': 'Fertig hochladen',
   'editor.toast.templateSaved': 'Vorlage heruntergeladen',
   'editor.toast.templateFailed': 'Vorlage konnte nicht erstellt werden',
-  'editor.toast.assetImported': 'Asset hochgeladen und als fertig markiert',
+  'editor.toast.assetImported': 'Asset hochgeladen – wartet jetzt auf Review',
+  'editor.acceptance': 'Fertig, wenn …',
+  'priority.low': 'Priorität niedrig',
+  'priority.medium': 'Priorität mittel',
+  'priority.high': 'Priorität hoch',
   'editor.toast.importFailed': 'Datei konnte nicht gelesen werden',
 
   'field.type': 'Typ',
@@ -244,6 +252,7 @@ export const de = {
   'projectSettings.outputFolderHelp':
     'Wird als Wurzelordner beim Batch-Export von Assets verwendet.',
   'projectSettings.deleteProject': 'Projekt löschen',
+  'projectSettings.resetDemo': 'Demo zurücksetzen',
 
   'ticketSettings.title': 'Ticket-Details',
   'ticketSettings.dimsWarn':
@@ -278,8 +287,7 @@ export const de = {
   'scene.eyebrow': 'Szenen-Produktionsboard',
   'scene.empty.title': 'Noch keine Szene',
   'scene.empty.body':
-    'Lade die vorbereitete Dungeon-Szene oder importiere ein Szenen-Blueprint, um einen Ticket-Plan zu erzeugen.',
-  'scene.loadDemo': 'Demo-Szene laden',
+    'Füge einen Plan der KI ein oder importiere ein Szenen-Blueprint, um einen Ticket-Plan zu erzeugen. Die Demo stellst du über Projekteinstellungen → „Demo zurücksetzen“ wieder her.',
   'scene.importJson': 'Blueprint-JSON importieren',
   'scene.pasteFromAi': 'Von KI einfügen',
   'blueprint.title': 'Blueprint von KI einfügen',
@@ -295,7 +303,6 @@ export const de = {
   'blueprint.invalid': 'Das ist kein gültiges Blueprint-JSON.',
   'blueprint.empty': 'Bitte zuerst JSON einfügen.',
   'scene.import': 'Importieren',
-  'scene.loadDemoShort': 'Demo laden',
   'scene.exportPlan': 'Plan exportieren',
   'scene.delete': 'Löschen',
   'scene.deleteConfirm': 'Szene „{name}“ und ihre {count} Tickets löschen?',
@@ -368,8 +375,6 @@ export const de = {
   'model.visibleMaps': 'Texturen in der Vorschau',
   'model.resetView': 'Ansicht zurücksetzen',
   'model.autoRotate': 'Automatisch drehen',
-  'model.loadDemo': 'Modell-Beispiel laden (leer)',
-  'model.loadPaintedDemo': 'Bemaltes Beispiel laden',
   'model.settings': 'Modell-Einstellungen',
   'model.progress': '{completed} / {total} Teile · {percent}%',
   'model.uvUpload': 'UV-Referenz hochladen',
@@ -435,7 +440,11 @@ export const en: Record<TranslationKey, string> = {
   'app.confirm.deleteProject.body':
     '“{name}” and all of its tickets and artwork will be permanently removed.',
   'app.confirm.deleteProject.confirm': 'Delete project',
+  'app.confirm.resetDemo.title': 'Reset demo?',
+  'app.confirm.resetDemo.body': 'All local data will be cleared and the demo starting state reloaded.',
+  'app.confirm.resetDemo.confirm': 'Reset demo',
 
+  'toast.demoReset': 'Demo reset',
   'toast.ticketCreated': 'Ticket created',
   'toast.ticketUpdated': 'Ticket updated',
   'toast.ticketArchived': 'Ticket archived',
@@ -446,7 +455,6 @@ export const en: Record<TranslationKey, string> = {
   'toast.projectUpdated': 'Project updated',
   'toast.projectDeleted': 'Project deleted',
   'toast.sceneLoaded': 'Scene loaded — {count} tickets generated',
-  'toast.demoSceneExists': 'That demo scene already exists.',
   'toast.groupLoaded': 'Group loaded — {count} tickets generated',
   'toast.stateExported': 'Project state exported',
   'toast.loadFailed': 'Failed to load studio data',
@@ -617,7 +625,11 @@ export const en: Record<TranslationKey, string> = {
   'editor.upload': 'Upload finished',
   'editor.toast.templateSaved': 'Template downloaded',
   'editor.toast.templateFailed': 'Could not create the template',
-  'editor.toast.assetImported': 'Asset uploaded and marked complete',
+  'editor.toast.assetImported': 'Asset uploaded – now waiting for review',
+  'editor.acceptance': 'Done when …',
+  'priority.low': 'Low priority',
+  'priority.medium': 'Medium priority',
+  'priority.high': 'High priority',
   'editor.toast.importFailed': 'Could not read the file',
 
   'field.type': 'Type',
@@ -647,6 +659,7 @@ export const en: Record<TranslationKey, string> = {
   'projectSettings.outputFolderHelp':
     'Used as the root folder when batch-exporting assets to disk.',
   'projectSettings.deleteProject': 'Delete project',
+  'projectSettings.resetDemo': 'Reset demo',
 
   'ticketSettings.title': 'Ticket details',
   'ticketSettings.dimsWarn':
@@ -681,8 +694,7 @@ export const en: Record<TranslationKey, string> = {
   'scene.eyebrow': 'Scene production board',
   'scene.empty.title': 'No scene yet',
   'scene.empty.body':
-    'Load the authored dungeon scene, or import a scene blueprint to generate a ticket plan.',
-  'scene.loadDemo': 'Load demo scene',
+    'Paste a plan from the AI or import a scene blueprint to generate a ticket plan. Restore the demo via Project settings → “Reset demo”.',
   'scene.importJson': 'Import blueprint JSON',
   'scene.pasteFromAi': 'Paste from AI',
   'blueprint.title': 'Paste blueprint from AI',
@@ -698,7 +710,6 @@ export const en: Record<TranslationKey, string> = {
   'blueprint.invalid': 'That is not a valid blueprint JSON.',
   'blueprint.empty': 'Please paste JSON first.',
   'scene.import': 'Import',
-  'scene.loadDemoShort': 'Load demo',
   'scene.exportPlan': 'Export plan',
   'scene.delete': 'Delete',
   'scene.deleteConfirm': 'Delete scene “{name}” and its {count} tickets?',
@@ -770,8 +781,6 @@ export const en: Record<TranslationKey, string> = {
   'model.visibleMaps': 'Textures in preview',
   'model.resetView': 'Reset view',
   'model.autoRotate': 'Auto-rotate',
-  'model.loadDemo': 'Load model example (empty)',
-  'model.loadPaintedDemo': 'Load painted example',
   'model.settings': 'Model settings',
   'model.progress': '{completed} / {total} parts · {percent}%',
   'model.uvUpload': 'Upload UV reference',

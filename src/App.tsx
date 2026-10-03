@@ -16,8 +16,6 @@ import { BlueprintImportDialog } from './components/BlueprintImportDialog';
 import { ConfirmDialog } from './components/Modal';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { Icon } from './components/Icon';
-import { DUNGEON_ENTRANCE_BLUEPRINT } from './data/dungeonScene';
-import { generateKnightMapDataUrl, getPlayerKnightBlueprint, getPlayerKnightPaintedBlueprint } from './data/modelDemo';
 import { composeTicketBlob } from './drawing/compose';
 import { buildAssetFilename, slugify } from './utils/naming';
 import { hashLayers } from './utils/hash';
@@ -156,56 +154,6 @@ function App() {
   const activeSceneName = activeTicketGroup?.name ?? null;
   const activeUvTemplate = activeTicketGroup?.kind === 'model' ? activeTicketGroup.uvTemplate : undefined;
 
-  const handleLoadDemoScene = () => {
-    if (studio.projectScenes.some((scene) => scene.name === DUNGEON_ENTRANCE_BLUEPRINT.name)) {
-      notify(t('toast.demoSceneExists'), 'info');
-      return;
-    }
-    void studio.importBlueprint(DUNGEON_ENTRANCE_BLUEPRINT).then((scene) => {
-      if (scene) notify(t('toast.sceneLoaded', { count: scene.items.length }), 'success');
-    });
-  };
-
-  const handleLoadModelDemo = () => {
-    const blueprint = getPlayerKnightBlueprint();
-    if (studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
-      notify(t('toast.demoSceneExists'), 'info');
-      return;
-    }
-    void studio.importBlueprint(blueprint).then((scene) => {
-      if (scene) {
-        notify(t('toast.groupLoaded', { count: scene.items.length }), 'success');
-        setViewMode('scene');
-      }
-    });
-  };
-
-  const paintTicket = (ticket: Ticket, uvTemplate?: string) => {
-    const paintMap = ticket.mapType ?? 'basecolor';
-    const partName = ticket.modelPart?.name;
-    const paint = generateKnightMapDataUrl(paintMap, 1024, partName);
-    const layers = ticket.layers.map((layer) =>
-      layer.kind === 'reference'
-        ? { ...layer, dataUrl: partName ? layer.dataUrl : uvTemplate ?? '' }
-        : { ...layer, dataUrl: paint },
-    );
-    const materialMapLayers = ticket.materialChannels?.length
-      ? Object.fromEntries(
-          ticket.materialChannels
-            .filter((channel) => channel.map !== 'basecolor')
-            .map((channel) => [
-              channel.map,
-              ticket.layers.map((layer) =>
-                layer.kind === 'reference'
-                  ? { ...layer, dataUrl: partName ? layer.dataUrl : uvTemplate ?? '' }
-                  : { ...layer, dataUrl: generateKnightMapDataUrl(channel.map, 1024, partName) },
-              ),
-            ]),
-        )
-      : ticket.materialMapLayers;
-    return { layers, materialMapLayers, status: 'complete' as const, completedAt: Date.now() };
-  };
-
   const handleExportState = async () => {
     if (!studio.activeProject) return;
     const doc = await buildProjectState(studio.activeProject, studio.scenes, studio.tickets);
@@ -214,31 +162,6 @@ function App() {
       `${slugify(studio.activeProject.name)}-state.json`,
     );
     notify(t('toast.stateExported'), 'success');
-  };
-
-  const handleLoadPaintedKnight = () => {
-    const blueprint = getPlayerKnightPaintedBlueprint();
-    const existing = studio.projectScenes.find((scene) => scene.name === blueprint.name);
-    if (existing) {
-      // Repaint the existing example with the current recipe.
-      const tickets = studio.projectTickets.filter((ticket) => ticket.sceneId === existing.id);
-      void Promise.all(
-        tickets.map((ticket) => studio.updateTicket(ticket.id, paintTicket(ticket, blueprint.uvTemplate))),
-      ).then(() => {
-        studio.selectScene(existing.id);
-        setViewMode('scene');
-        notify(t('toast.groupLoaded', { count: tickets.length }), 'success');
-      });
-      return;
-    }
-    void studio
-      .importBlueprint(blueprint, undefined, (ticket) => paintTicket(ticket, blueprint.uvTemplate))
-      .then((scene) => {
-        if (scene) {
-          notify(t('toast.groupLoaded', { count: scene.items.length }), 'success');
-          setViewMode('scene');
-        }
-      });
   };
 
   const flushEditor = () => {
@@ -256,7 +179,9 @@ function App() {
   const handleImportBlueprint = (blueprint: SceneBlueprint) => {
     // A blueprint whose id matches an existing scene is an update (upsert), so it
     // may share the name. Only block genuinely new plans that clash by name.
-    const updatesExisting = Boolean(blueprint.id && studio.scenes.some((scene) => scene.id === blueprint.id));
+    const updatesExisting = Boolean(
+      blueprint.id && studio.projectScenes.some((scene) => scene.blueprintId === blueprint.id),
+    );
     if (!updatesExisting && studio.projectScenes.some((scene) => scene.name === blueprint.name)) {
       notify(t('toast.groupExists'), 'info');
       return;
@@ -287,6 +212,21 @@ function App() {
         await studio.deleteProject(project.id);
         setConfirmState(null);
         notify(t('toast.projectDeleted'), 'success');
+      },
+    });
+  };
+
+  const handleResetDemo = () => {
+    setConfirmState({
+      title: t('app.confirm.resetDemo.title'),
+      message: t('app.confirm.resetDemo.body'),
+      confirmLabel: t('app.confirm.resetDemo.confirm'),
+      danger: true,
+      onConfirm: async () => {
+        await studio.resetDemoData();
+        setConfirmState(null);
+        setViewMode('editor');
+        notify(t('toast.demoReset'), 'success');
       },
     });
   };
@@ -407,8 +347,6 @@ function App() {
             }
           }}
           onOpenGuide={() => setShowImport(true)}
-          onLoadModelDemo={handleLoadModelDemo}
-          onLoadPaintedDemo={handleLoadPaintedKnight}
         />
         <TicketQueue
           tickets={studio.projectTickets}
@@ -483,7 +421,6 @@ function App() {
               tickets={studio.projectTickets}
               settings={studio.settings}
               onImportBlueprint={handleImportBlueprint}
-              onLoadDemo={handleLoadModelDemo}
               onDeleteScene={(id) => void studio.deleteScene(id)}
               onCompleteScene={(id) => void studio.completeScene(id)}
               onUpdateScene={(id, patch) => void studio.updateScene(id, patch)}
@@ -507,7 +444,6 @@ function App() {
                 studio.selectScene(id);
               }}
               onImportBlueprint={handleImportBlueprint}
-              onLoadDemo={handleLoadDemoScene}
               onDeleteScene={(id) => void studio.deleteScene(id)}
               onCompleteScene={(id) => void studio.completeScene(id)}
               onOpenTicket={(id) => {
@@ -568,6 +504,10 @@ function App() {
           onDelete={() => {
             setShowProjectSettings(false);
             handleDeleteProject();
+          }}
+          onResetDemo={() => {
+            setShowProjectSettings(false);
+            handleResetDemo();
           }}
         />
       ) : null}

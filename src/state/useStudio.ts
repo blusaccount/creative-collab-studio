@@ -14,6 +14,7 @@ import { createDefaultLayerStates } from '../drawing/factory';
 import { buildSceneFromBlueprint } from '../scenes/build';
 import { t } from '../i18n';
 import { createId } from '../utils/id';
+import { blockWrites, resetDatabase } from '../storage/db';
 import {
   DEFAULT_SETTINGS,
   bootstrapStudio,
@@ -25,6 +26,7 @@ import {
   removeProject,
   removeScene,
   removeTicket,
+  type StudioSnapshot,
 } from '../storage/repository';
 
 export interface NewTicketInput {
@@ -54,35 +56,36 @@ export function useStudio() {
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const bootstrapped = useRef(false);
 
+  const applySnapshot = useCallback((snapshot: StudioSnapshot) => {
+    setProjects(snapshot.projects);
+    setTickets(snapshot.tickets);
+    setScenes(snapshot.scenes);
+    setSettings(snapshot.settings);
+    const storedProject = snapshot.settings.lastProjectId;
+    const project = snapshot.projects.find((item) => item.id === storedProject) ?? snapshot.projects[0];
+    setActiveProjectId(project?.id ?? '');
+    const projectTickets = snapshot.tickets.filter((ticket) => ticket.projectId === project?.id);
+    const storedTicket = snapshot.settings.lastTicketId;
+    const ticket =
+      projectTickets.find((item) => item.id === storedTicket) ??
+      [...projectTickets].sort((a, b) => a.order - b.order)[0];
+    setActiveTicketId(ticket?.id ?? null);
+    const projectScenes = snapshot.scenes.filter((scene) => scene.projectId === project?.id);
+    const storedScene = snapshot.settings.lastSceneId;
+    const scene = projectScenes.find((item) => item.id === storedScene) ?? projectScenes[0];
+    setActiveSceneId(scene?.id ?? null);
+  }, []);
+
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
     bootstrapStudio()
-      .then((snapshot) => {
-        setProjects(snapshot.projects);
-        setTickets(snapshot.tickets);
-        setScenes(snapshot.scenes);
-        setSettings(snapshot.settings);
-        const storedProject = snapshot.settings.lastProjectId;
-        const project =
-          snapshot.projects.find((item) => item.id === storedProject) ?? snapshot.projects[0];
-        setActiveProjectId(project?.id ?? '');
-        const projectTickets = snapshot.tickets.filter((ticket) => ticket.projectId === project?.id);
-        const storedTicket = snapshot.settings.lastTicketId;
-        const ticket =
-          projectTickets.find((item) => item.id === storedTicket) ??
-          [...projectTickets].sort((a, b) => a.order - b.order)[0];
-        setActiveTicketId(ticket?.id ?? null);
-        const projectScenes = snapshot.scenes.filter((scene) => scene.projectId === project?.id);
-        const storedScene = snapshot.settings.lastSceneId;
-        const scene = projectScenes.find((item) => item.id === storedScene) ?? projectScenes[0];
-        setActiveSceneId(scene?.id ?? null);
-      })
+      .then(applySnapshot)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : t('toast.loadFailed'));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [applySnapshot]);
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null,
@@ -146,14 +149,24 @@ export function useStudio() {
       const built = buildSceneFromBlueprint(blueprint, targetProject, baseOrder);
       const scene = built.scene;
 
-      // Idempotent upsert: a blueprint with an existing scene id updates that
-      // scene and its tickets instead of duplicating the whole set.
-      const existing = blueprint.id ? scenes.find((item) => item.id === blueprint.id) : undefined;
+      // Idempotent upsert: a blueprint whose id matches a scene in the same
+      // project updates that scene and its tickets instead of duplicating the
+      // set. Tickets are matched by the AI's own asset id, so painted artwork
+      // and notes survive; the database ids stay internal.
+      const existing = blueprint.id
+        ? scenes.find((item) => item.projectId === targetProject && item.blueprintId === blueprint.id)
+        : undefined;
       if (existing) {
-        const prevById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+        const prevByAssetId = new Map(
+          tickets
+            .filter((ticket) => ticket.sceneId === existing.id && ticket.blueprintAssetId)
+            .map((ticket) => [ticket.blueprintAssetId!, ticket]),
+        );
+        const idMap = new Map<string, string>();
         const merged = built.tickets.map((ticket) => {
-          const prev = prevById.get(ticket.id);
-          if (!prev) return ticket;
+          const prev = ticket.blueprintAssetId ? prevByAssetId.get(ticket.blueprintAssetId) : undefined;
+          if (!prev) return { ...ticket, sceneId: existing.id };
+          idMap.set(ticket.id, prev.id);
           return {
             ...prev,
             title: ticket.title,
@@ -164,6 +177,8 @@ export function useStudio() {
             mapType: ticket.mapType,
             materialChannels: ticket.materialChannels,
             modelPart: ticket.modelPart,
+            priority: ticket.priority,
+            acceptanceCriteria: ticket.acceptanceCriteria,
             updatedAt: Date.now(),
           } as Ticket;
         });
@@ -179,7 +194,7 @@ export function useStudio() {
           mesh: scene.mesh,
           modelFile: scene.modelFile ?? existing.modelFile,
           canvas: scene.canvas,
-          items: scene.items,
+          items: scene.items.map((item) => ({ ...item, ticketId: idMap.get(item.ticketId) ?? item.ticketId })),
           updatedAt: Date.now(),
         };
         setScenes((current) => current.map((item) => (item.id === updatedScene.id ? updatedScene : item)));
@@ -473,6 +488,13 @@ export function useStudio() {
 
   const clearError = useCallback(() => setError(null), []);
 
+  /** Wipes all local data and reloads into the curated demo state (for a clean demo run). */
+  const resetDemoData = useCallback(async () => {
+    blockWrites();
+    await resetDatabase();
+    window.location.reload();
+  }, []);
+
   return {
     loading,
     error,
@@ -507,6 +529,7 @@ export function useStudio() {
     selectScene,
     completeScene,
     updateScene,
+    resetDemoData,
   };
 }
 

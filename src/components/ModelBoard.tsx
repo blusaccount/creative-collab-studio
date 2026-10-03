@@ -18,7 +18,6 @@ interface ModelBoardProps {
   tickets: Ticket[];
   settings: StudioSettings;
   onImportBlueprint: (blueprint: SceneBlueprint) => void;
-  onLoadDemo: () => void;
   onDeleteScene: (id: string) => void;
   onCompleteScene: (id: string) => void;
   onUpdateScene: (id: string, patch: Partial<Scene>) => void;
@@ -33,7 +32,6 @@ export function ModelBoard({
   tickets,
   settings,
   onImportBlueprint,
-  onLoadDemo,
   onDeleteScene,
   onCompleteScene,
   onUpdateScene,
@@ -190,9 +188,6 @@ export function ModelBoard({
           </button>
           <button className="ghost-button" onClick={onOpenGuide}>
             <Icon name="info" size={15} /> {t('app.aiGuide')}
-          </button>
-          <button className="ghost-button" onClick={onLoadDemo}>
-            <Icon name="plus" size={15} /> {t('scene.loadDemoShort')}
           </button>
           <button className="ghost-button" onClick={exportPlan}>
             <Icon name="save" size={15} /> {t('scene.exportPlan')}

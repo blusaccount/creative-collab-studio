@@ -44,6 +44,11 @@ export interface Ticket {
   materialMapLayers?: Partial<Record<MapType, LayerState[]>>;
   /** The UV region represented by this model-part ticket, in the group's atlas space. */
   modelPart?: UvIsland;
+  /** The id the AI gave this entry in its blueprint (used to match on re-import). */
+  blueprintAssetId?: string;
+  priority?: 'low' | 'medium' | 'high';
+  /** "Done when" checklist from the AI blueprint. */
+  acceptanceCriteria?: string[];
   title: string;
   description: string;
   type: TicketType;
@@ -118,6 +123,8 @@ export type MapType =
 export interface Scene {
   id: string;
   projectId: string;
+  /** The id the AI gave this blueprint (used to update instead of duplicate on re-import). */
+  blueprintId?: string;
   kind: SetKind;
   name: string;
   description: string;
