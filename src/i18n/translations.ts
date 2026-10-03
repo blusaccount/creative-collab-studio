@@ -32,7 +32,12 @@ export const de = {
   'app.confirm.deleteProject.body':
     '„{name}“ sowie alle zugehörigen Tickets und Artworks werden dauerhaft entfernt.',
   'app.confirm.deleteProject.confirm': 'Projekt löschen',
+  'app.confirm.resetDemo.title': 'Demo zurücksetzen?',
+  'app.confirm.resetDemo.body':
+    'Alle lokalen Daten werden gelöscht und der Demo-Ausgangszustand neu geladen.',
+  'app.confirm.resetDemo.confirm': 'Demo zurücksetzen',
 
+  'toast.demoReset': 'Demo zurückgesetzt',
   'toast.ticketCreated': 'Ticket erstellt',
   'toast.ticketUpdated': 'Ticket aktualisiert',
   'toast.ticketArchived': 'Ticket archiviert',
@@ -244,6 +249,7 @@ export const de = {
   'projectSettings.outputFolderHelp':
     'Wird als Wurzelordner beim Batch-Export von Assets verwendet.',
   'projectSettings.deleteProject': 'Projekt löschen',
+  'projectSettings.resetDemo': 'Demo zurücksetzen',
 
   'ticketSettings.title': 'Ticket-Details',
   'ticketSettings.dimsWarn':
@@ -435,7 +441,11 @@ export const en: Record<TranslationKey, string> = {
   'app.confirm.deleteProject.body':
     '“{name}” and all of its tickets and artwork will be permanently removed.',
   'app.confirm.deleteProject.confirm': 'Delete project',
+  'app.confirm.resetDemo.title': 'Reset demo?',
+  'app.confirm.resetDemo.body': 'All local data will be cleared and the demo starting state reloaded.',
+  'app.confirm.resetDemo.confirm': 'Reset demo',
 
+  'toast.demoReset': 'Demo reset',
   'toast.ticketCreated': 'Ticket created',
   'toast.ticketUpdated': 'Ticket updated',
   'toast.ticketArchived': 'Ticket archived',
@@ -647,6 +657,7 @@ export const en: Record<TranslationKey, string> = {
   'projectSettings.outputFolderHelp':
     'Used as the root folder when batch-exporting assets to disk.',
   'projectSettings.deleteProject': 'Delete project',
+  'projectSettings.resetDemo': 'Reset demo',
 
   'ticketSettings.title': 'Ticket details',
   'ticketSettings.dimsWarn':
