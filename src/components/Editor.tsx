@@ -465,13 +465,14 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
         await engine.setDrawLayerImage(canvas.toDataURL('image/png'));
         scheduleSave();
-        changeStatus('complete');
+        // An uploaded asset still needs a human sign-off, so it goes to review.
+        if (ticket.status !== 'complete') changeStatus('review-ready');
         notify(t('editor.toast.assetImported'), 'success');
       } catch {
         notify(t('editor.toast.importFailed'), 'error');
       }
     },
-    [engine, scheduleSave, changeStatus, notify],
+    [engine, scheduleSave, changeStatus, notify, ticket.status, ticket.dimensions.width, ticket.dimensions.height],
   );
 
   const handlePickColor = useCallback(
@@ -726,63 +727,65 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
               </div>
             </div>
           ) : null}
-          {isMaterialTicket && paintSurface === 'model' && modelGroup ? (
-            <div className="canvas-model-view">
-              <ModelPreview
-                scene={modelGroup}
-                tickets={groupTickets ?? []}
-                focusPart={ticket.modelPart?.name}
-                showMapControls={false}
-                liveMap={activeMaterialChannel}
-                liveCanvas={liveMaterialCanvasRef.current ?? undefined}
-                liveVersion={liveMaterialVersion}
-                liveTicketId={ticket.id}
-                livePart={ticket.modelPart}
-                paintMode={modelPaintMode}
-                onOpenPart={onOpenTicket}
+          <div className="stage-area">
+            {isMaterialTicket && paintSurface === 'model' && modelGroup ? (
+              <div className="canvas-model-view">
+                <ModelPreview
+                  scene={modelGroup}
+                  tickets={groupTickets ?? []}
+                  focusPart={ticket.modelPart?.name}
+                  showMapControls={false}
+                  liveMap={activeMaterialChannel}
+                  liveCanvas={liveMaterialCanvasRef.current ?? undefined}
+                  liveVersion={liveMaterialVersion}
+                  liveTicketId={ticket.id}
+                  livePart={ticket.modelPart}
+                  paintMode={modelPaintMode}
+                  onOpenPart={onOpenTicket}
+                />
+              </div>
+            ) : ready ? (
+              <CanvasStage
+                engine={engine}
+                view={view}
+                onViewChange={viewChange}
+                settings={canvasSettings}
+                onPickColor={handlePickColor}
+                onCommit={scheduleSave}
+                onLiveUpdate={isMaterialTicket ? updateLiveMaterial : undefined}
+                onCursorMove={setCursor}
+                fitNonce={fitNonce}
               />
-            </div>
-          ) : ready ? (
-            <CanvasStage
-              engine={engine}
-              view={view}
-              onViewChange={viewChange}
-              settings={canvasSettings}
-              onPickColor={handlePickColor}
-              onCommit={scheduleSave}
-              onLiveUpdate={isMaterialTicket ? updateLiveMaterial : undefined}
-              onCursorMove={setCursor}
-              fitNonce={fitNonce}
-            />
-          ) : (
-            <div className="canvas-loading">{t('editor.loading')}</div>
-          )}
+            ) : (
+              <div className="canvas-loading">{t('editor.loading')}</div>
+            )}
 
-          <div className="paint-vsliders">
-            <div className="vslider" title={t('ribbon.lineWidth')}>
-              <input
-                type="range"
-                aria-label={t('ribbon.lineWidth')}
-                title={t('ribbon.lineWidth')}
-                min={1}
-                max={64}
-                value={tool.size}
-                onChange={(event) => updateTool({ size: Number(event.target.value) })}
-              />
-              <span className="vslider-value">{tool.size}</span>
-            </div>
-            <div className="vslider" title={t('tool.opacity')}>
-              <input
-                type="range"
-                aria-label={t('tool.opacity')}
-                title={t('tool.opacity')}
-                min={5}
-                max={100}
-                value={Math.round(tool.opacity * 100)}
-                onChange={(event) => updateTool({ opacity: Number(event.target.value) / 100 })}
-              />
-              <span className="vslider-value">{Math.round(tool.opacity * 100)}</span>
-            </div>
+            <div className="paint-vsliders">
+              <div className="vslider" title={t('ribbon.lineWidth')}>
+                <input
+                  type="range"
+                  aria-label={t('ribbon.lineWidth')}
+                  title={t('ribbon.lineWidth')}
+                  min={1}
+                  max={64}
+                  value={tool.size}
+                  onChange={(event) => updateTool({ size: Number(event.target.value) })}
+                />
+                <span className="vslider-value">{tool.size}</span>
+              </div>
+              <div className="vslider" title={t('tool.opacity')}>
+                <input
+                  type="range"
+                  aria-label={t('tool.opacity')}
+                  title={t('tool.opacity')}
+                  min={5}
+                  max={100}
+                  value={Math.round(tool.opacity * 100)}
+                  onChange={(event) => updateTool({ opacity: Number(event.target.value) / 100 })}
+                />
+                <span className="vslider-value">{Math.round(tool.opacity * 100)}</span>
+              </div>
+          </div>
           </div>
         </div>
       </div>
@@ -800,6 +803,21 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
               </span>
             ) : null}
             <p className="ticket-brief">{ticket.description || t('editor.noBrief')}</p>
+            {ticket.acceptanceCriteria?.length ? (
+              <div className="ticket-criteria">
+                <div className="ticket-criteria-head">
+                  <span className="label">{t('editor.acceptance')}</span>
+                  {ticket.priority ? (
+                    <span className={`priority-tag ${ticket.priority}`}>{t(`priority.${ticket.priority}` as const)}</span>
+                  ) : null}
+                </div>
+                <ul>
+                  {ticket.acceptanceCriteria.map((criterion) => (
+                    <li key={criterion}>{criterion}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="ticket-header-actions">
               <button className="ghost-button small" onClick={onOpenSettings}>
                 <Icon name="edit" size={14} /> {t('editor.editDetails')}
@@ -1019,7 +1037,8 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
             paintMode={modelPaintMode}
             onOpenPart={onOpenTicket}
           />
-          {ticket.modelPart ? (
+          {/* The centre already shows the focused part while painting on the model. */}
+          {ticket.modelPart && paintSurface !== 'model' ? (
             <section className="part-model-preview">
               <div className="side-section-head">
                 <h3>{t('model.partPreview', { part: ticket.modelPart.name })}</h3>
@@ -1034,11 +1053,6 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
                 liveVersion={liveMaterialVersion}
                 liveTicketId={isMaterialTicket ? ticket.id : undefined}
                 livePart={isMaterialTicket ? ticket.modelPart : undefined}
-                paintMode={
-                  isMaterialTicket && paintSurface === 'model'
-                    ? modelPaintMode
-                    : undefined
-                }
                 onOpenPart={onOpenTicket}
               />
             </section>

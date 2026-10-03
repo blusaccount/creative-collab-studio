@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 3,
+  "id": "dungeon-treasury",
+  "kind": "scene",
+  "name": "Dungeon-Crawler — Schatzkammer",
+  "description": "Der Raum hinter der eisenbeschlagenen Tür: eine kleine Schatzkammer mit Goldhaufen, Waffenständer und einem verschlossenen Gitter. Belohnung für den ersten Abschnitt.",
+  "artDirection": "Gleiche Handschrift wie die Eingangshalle: handgemalt, kaltes Blaugrau, warmes Fackellicht. Gold darf leuchten, aber nicht kitschig wirken.",
+  "canvas": { "width": 960, "height": 540, "background": "#0b0d12" },
+  "assets": [
+    {
+      "id": "gold-pile",
+      "title": "Goldhaufen",
+      "type": "prop",
+      "priority": "high",
+      "purpose": "Blickfang in der Raummitte, signalisiert die Belohnung.",
+      "acceptanceCriteria": ["Transparenter Hintergrund", "Münzen einzeln lesbar, aber nicht sauber gezählt", "Warmer Glanz von der Fackelseite"],
+      "dimensions": { "width": 256, "height": 160 },
+      "background": "transparent",
+      "brief": "Ein flacher Haufen Goldmünzen mit ein paar Kelchen und einem Edelstein. Weiche Kontaktschatten, Licht von links.",
+      "layout": { "x": 352, "y": 330, "width": 256, "height": 160, "layer": 2 }
+    },
+    {
+      "id": "weapon-rack",
+      "title": "Waffenständer",
+      "type": "prop",
+      "priority": "medium",
+      "acceptanceCriteria": ["Transparenter Hintergrund", "Drei Waffen klar unterscheidbar"],
+      "dimensions": { "width": 160, "height": 256 },
+      "background": "transparent",
+      "brief": "Ein Holzständer an der Wand mit Schwert, Axt und Speer. Leicht verstaubt, Metall mit kühlem Kantenlicht.",
+      "layout": { "x": 120, "y": 150, "width": 160, "height": 256, "layer": 1 }
+    },
+    {
+      "id": "iron-gate",
+      "title": "Verschlossenes Gitter",
+      "type": "prop",
+      "priority": "medium",
+      "acceptanceCriteria": ["Transparenter Hintergrund", "Raum dahinter bleibt sichtbar"],
+      "dimensions": { "width": 192, "height": 288 },
+      "background": "transparent",
+      "brief": "Ein rostiges Eisengitter mit schwerem Vorhängeschloss, eingesetzt in einen Steinbogen. Dahinter nur Dunkelheit.",
+      "layout": { "x": 700, "y": 90, "width": 192, "height": 288, "layer": 1 }
+    }
+  ]
+}

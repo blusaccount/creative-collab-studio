@@ -18,7 +18,6 @@ interface SceneViewProps {
   onSelectScene: (id: string) => void;
   onSelectGroup?: (id: string) => void;
   onImportBlueprint: (blueprint: SceneBlueprint) => void;
-  onLoadDemo: () => void;
   onDeleteScene: (id: string) => void;
   onCompleteScene: (id: string) => void;
   onOpenTicket: (id: string) => void;
@@ -78,7 +77,6 @@ export function SceneView({
   onSelectScene,
   onSelectGroup,
   onImportBlueprint,
-  onLoadDemo,
   onDeleteScene,
   onCompleteScene,
   onOpenTicket,
@@ -202,9 +200,6 @@ export function SceneView({
           <button className="primary-button" onClick={() => setShowImport(true)}>
             <Icon name="bot" size={15} /> {t('scene.pasteFromAi')}
           </button>
-          <button className="ghost-button" onClick={onLoadDemo}>
-            <Icon name="plus" size={15} /> {t('scene.loadDemo')}
-          </button>
           <button className="ghost-button" onClick={() => fileRef.current?.click()}>
             <Icon name="folder" size={15} /> {t('scene.importJson')}
           </button>
@@ -260,9 +255,6 @@ export function SceneView({
           </button>
           <button className="ghost-button" onClick={() => fileRef.current?.click()}>
             <Icon name="folder" size={15} /> {t('scene.import')}
-          </button>
-          <button className="ghost-button" onClick={onLoadDemo}>
-            <Icon name="plus" size={15} /> {t('scene.loadDemoShort')}
           </button>
           <button className="ghost-button" onClick={handleExportBlueprint}>
             <Icon name="save" size={15} /> {t('scene.exportPlan')}

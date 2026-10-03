@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SceneBlueprint } from '../types';
-import { validateBlueprint, validateBlueprintReport } from './build';
+import { buildSceneFromBlueprint, validateBlueprint, validateBlueprintReport } from './build';
 
 function asset(title: string) {
   return {
@@ -73,5 +73,42 @@ describe('validateBlueprintReport', () => {
     const { blueprint, report } = validateBlueprintReport(blueprintInput);
     expect(report.errors).toHaveLength(0);
     expect(blueprint?.maps).toHaveLength(1);
+  });
+});
+
+describe('buildSceneFromBlueprint ids', () => {
+  const blueprint = {
+    id: 'shared-plan',
+    name: 'Plan',
+    description: '',
+    artDirection: '',
+    assets: [
+      {
+        id: 'torch',
+        title: 'Torch',
+        type: 'prop' as const,
+        priority: 'high' as const,
+        acceptanceCriteria: ['Transparent background'],
+        dimensions: { width: 64, height: 64 },
+        background: 'transparent' as const,
+        brief: '',
+        layout: { x: 0, y: 0, width: 64, height: 64, layer: 0 },
+      },
+    ],
+  };
+
+  it('keeps AI ids out of the database keys so two imports never collide', () => {
+    const first = buildSceneFromBlueprint(blueprint, 'project-a', 0);
+    const second = buildSceneFromBlueprint(blueprint, 'project-b', 0);
+    expect(first.scene.id).not.toBe(second.scene.id);
+    expect(first.tickets[0].id).not.toBe(second.tickets[0].id);
+    expect(first.scene.blueprintId).toBe('shared-plan');
+    expect(first.tickets[0].blueprintAssetId).toBe('torch');
+  });
+
+  it('carries priority and acceptance criteria onto the ticket', () => {
+    const [ticket] = buildSceneFromBlueprint(blueprint, 'project-a', 0).tickets;
+    expect(ticket.priority).toBe('high');
+    expect(ticket.acceptanceCriteria).toEqual(['Transparent background']);
   });
 });
