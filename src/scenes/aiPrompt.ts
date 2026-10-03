@@ -1,6 +1,6 @@
 import type { Language } from '../i18n';
 
-const SCENE_SCHEMA = `{
+export const SCENE_SCHEMA = `{
   "schemaVersion": 3,
   "action": "upsert",                       // "create" | "upsert" (upsert re-uses a stable "id")
   "id": "scene-<slug>",                     // optional, stable — needed for updates
@@ -25,7 +25,7 @@ const SCENE_SCHEMA = `{
   ]
 }`;
 
-const MODEL_SCHEMA = `{
+export const MODEL_SCHEMA = `{
   "schemaVersion": 3,
   "action": "upsert",                       // "create" | "upsert"
   "id": "model-<slug>",                     // optional, stable
@@ -55,6 +55,23 @@ const MODEL_SCHEMA = `{
   ]
 }`;
 
+/** Blueprint rules, shared by the copy-paste prompt and the AI bridge's MCP guide. */
+export const BLUEPRINT_RULES_EN = `- Exactly one ticket per 2D asset. For a model with distinct, independently paintable parts, create one part ticket per meaningful part; do not combine unrelated body parts on one canvas. A simple, inseparable model gets one ticket.
+- For model-part tickets, define one "uvLayout" rectangle per paintable part, use the same exact name in the corresponding "mesh.parts[].name" and every channel map's "part", and make the mesh part's "uv" rectangle match that UV region. Every channel entry for a given part must use that part name; repeating map entries groups those channels onto one ticket.
+- Give each part a concise, actionable "brief" that says what to paint and where; do not reuse a generic whole-model instruction for every part. Include BaseColor and only the additional material channels actually needed for that part.
+- 2D "type": texture, prop, ui, concept, effect, character, other.
+- For models, all parts and their channels belong in ONE "model" blueprint (group). Keep each part's material channels together on its part ticket.
+- "background": "white" for BaseColor/emissive/textures, "transparent" for normal/roughness/metallic/AO and props.
+- Textures seamless and power-of-two; for models use the same resolution for all maps.
+- "brief": short, clear painting instruction (style, lighting, palette, edges, transparency).
+- "target" (models only): unreal | unity | gltf.
+- Use "part" on map entries only when the name matches a uvLayout region and mesh part; provide the full set of relevant maps for each part. When texturing an existing model, use its real UV reference and do not invent placements; when designing a new procedural preview, define the mesh-part UV rectangles and uvLayout together.
+- For EVERY model set you MUST include the model so textures can be previewed: provide "modelUrl" (a real .glb) OR a "mesh" spec (primitives). A "mesh" part = { shape: box|cylinder|sphere, size:[w,h,d], position:[x,y,z], uv:[x,y,w,h] } in 0–1 texture space; the parts must line up with the map layout.
+- For updates: set a stable "id" + "action": "upsert" so entries are updated instead of duplicated.
+- In model updates, keep the same stable "id" on each part's BaseColor map so its ticket and existing paint are retained; omit map ids on other channels.
+- Optional per entry: "priority" (low|medium|high), "purpose", "acceptanceCriteria" (done-when), "references".
+- "layout" (scenes only): x/y/width/height in scene-canvas coordinates; "layer" depth (small = back).`;
+
 export function buildAiPrompt(language: Language): string {
   if (language === 'en') {
     return `You are the production assistant for hand-made 2D and 3D game art in the tool "Creative Collab Studio".
@@ -76,21 +93,7 @@ Format for 3D models (texture group):
 ${MODEL_SCHEMA}
 
 Rules:
-- Exactly one ticket per 2D asset. For a model with distinct, independently paintable parts, create one part ticket per meaningful part; do not combine unrelated body parts on one canvas. A simple, inseparable model gets one ticket.
-- For model-part tickets, define one "uvLayout" rectangle per paintable part, use the same exact name in the corresponding "mesh.parts[].name" and every channel map's "part", and make the mesh part's "uv" rectangle match that UV region. Every channel entry for a given part must use that part name; repeating map entries groups those channels onto one ticket.
-- Give each part a concise, actionable "brief" that says what to paint and where; do not reuse a generic whole-model instruction for every part. Include BaseColor and only the additional material channels actually needed for that part.
-- 2D "type": texture, prop, ui, concept, effect, character, other.
-- For models, all parts and their channels belong in ONE "model" blueprint (group). Keep each part's material channels together on its part ticket.
-- "background": "white" for BaseColor/emissive/textures, "transparent" for normal/roughness/metallic/AO and props.
-- Textures seamless and power-of-two; for models use the same resolution for all maps.
-- "brief": short, clear painting instruction (style, lighting, palette, edges, transparency).
-- "target" (models only): unreal | unity | gltf.
-- Use "part" on map entries only when the name matches a uvLayout region and mesh part; provide the full set of relevant maps for each part. When texturing an existing model, use its real UV reference and do not invent placements; when designing a new procedural preview, define the mesh-part UV rectangles and uvLayout together.
-- For EVERY model set you MUST include the model so textures can be previewed: provide "modelUrl" (a real .glb) OR a "mesh" spec (primitives). A "mesh" part = { shape: box|cylinder|sphere, size:[w,h,d], position:[x,y,z], uv:[x,y,w,h] } in 0–1 texture space; the parts must line up with the map layout.
-- For updates: set a stable "id" + "action": "upsert" so entries are updated instead of duplicated.
-- In model updates, keep the same stable "id" on each part's BaseColor map so its ticket and existing paint are retained; omit map ids on other channels.
-- Optional per entry: "priority" (low|medium|high), "purpose", "acceptanceCriteria" (done-when), "references".
-- "layout" (scenes only): x/y/width/height in scene-canvas coordinates; "layer" depth (small = back).
+${BLUEPRINT_RULES_EN}
 - Language: English. Keep the JSON valid.`;
   }
   return `Du bist Produktionsassistent für handgemachte 2D- und 3D-Game-Art im Tool "Creative Collab Studio".
