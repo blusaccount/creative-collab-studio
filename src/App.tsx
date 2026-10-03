@@ -13,6 +13,7 @@ import { TicketSettingsDialog } from './components/TicketSettingsDialog';
 import { ProjectSettingsDialog } from './components/ProjectSettingsDialog';
 import { AiGuideDialog } from './components/AiGuideDialog';
 import { BlueprintImportDialog } from './components/BlueprintImportDialog';
+import { DirectorView } from './components/DirectorView';
 import { ConfirmDialog } from './components/Modal';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { Icon } from './components/Icon';
@@ -24,6 +25,8 @@ import { downloadBlob } from './utils/download';
 import { readFileAsDataUrl } from './utils/psd';
 import { createId } from './utils/id';
 import { getLanguage, setLanguage, subscribeLanguage, t } from './i18n';
+import { useBridge } from './bridge/useBridge';
+import { pendingDecisions } from './bridge/sync';
 
 interface ConfirmState {
   title: string;
@@ -33,7 +36,7 @@ interface ConfirmState {
   onConfirm: () => void;
 }
 
-type ViewMode = 'editor' | 'scene' | 'library';
+type ViewMode = 'editor' | 'scene' | 'library' | 'director';
 
 function App() {
   const studio = useStudio();
@@ -64,6 +67,9 @@ function App() {
     setToasts((current) => [...current, { id, message, tone }]);
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3800);
   }, []);
+
+  const bridge = useBridge(studio, notify);
+  const directorBadge = pendingDecisions(bridge.snapshot);
 
   const studioError = studio.error;
   const clearStudioError = studio.clearError;
@@ -186,9 +192,9 @@ function App() {
       notify(t('toast.groupExists'), 'info');
       return;
     }
-    void studio.importBlueprint(blueprint).then((scene) => {
-      if (!scene) return;
-      notify(t('toast.blueprintImported', { name: blueprint.name, count: scene.items.length }), 'success');
+    void studio.importBlueprint(blueprint).then((result) => {
+      if (!result) return;
+      notify(t('toast.blueprintImported', { name: blueprint.name, count: result.scene.items.length }), 'success');
       setViewMode('scene');
     });
   };
@@ -293,6 +299,14 @@ function App() {
             </button>
             <button className={viewMode === 'library' ? 'active' : ''} onClick={() => handleViewChange('library')}>
               <Icon name="image" size={15} /> {t('app.view.assets')}
+            </button>
+            <button
+              className={viewMode === 'director' ? 'active' : ''}
+              onClick={() => handleViewChange('director')}
+              title={t('app.bridge.title', { status: t(`bridge.status.${bridge.status}`) })}
+            >
+              <span className={`bridge-dot ${bridge.status}`} /> {t('app.view.director')}
+              {directorBadge > 0 ? <span className="tab-badge">{directorBadge}</span> : null}
             </button>
           </div>
           <button
@@ -454,6 +468,17 @@ function App() {
               notify={notify}
             />
           )
+        ) : viewMode === 'director' ? (
+          <DirectorView
+            bridge={bridge}
+            scenes={studio.scenes}
+            notify={notify}
+            onOpenScene={(scene) => {
+              if (scene.projectId !== studio.activeProjectId) studio.selectProject(scene.projectId);
+              studio.selectScene(scene.id);
+              setViewMode('scene');
+            }}
+          />
         ) : (
           <AssetLibrary
             project={studio.activeProject}

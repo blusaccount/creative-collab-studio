@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, Scene, SceneBlueprint, StudioSettings, Ticket } from '../types';
 import { t } from '../i18n';
-import { composeTicketCanvas } from '../drawing/compose';
+import { drawScene, renderSceneBlob } from '../scenes/render';
 import { validateBlueprint } from '../scenes/build';
 import { slugify } from '../utils/naming';
 import { downloadBlob } from '../utils/download';
@@ -23,50 +23,6 @@ interface SceneViewProps {
   onOpenTicket: (id: string) => void;
   onOpenGuide: () => void;
   notify: (message: string, tone?: 'info' | 'success' | 'error') => void;
-}
-
-async function drawScene(
-  ctx: CanvasRenderingContext2D,
-  scene: Scene,
-  ticketById: Map<string, Ticket>,
-  showPlaceholders: boolean,
-): Promise<void> {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, scene.canvas.width, scene.canvas.height);
-  ctx.fillStyle = scene.canvas.background;
-  ctx.fillRect(0, 0, scene.canvas.width, scene.canvas.height);
-
-  const items = [...scene.items].sort((a, b) => a.layer - b.layer);
-  for (const item of items) {
-    const ticket = ticketById.get(item.ticketId);
-    if (ticket && ticket.status === 'complete') {
-      const composed = await composeTicketCanvas(ticket);
-      ctx.drawImage(composed, item.x, item.y, item.width, item.height);
-    } else if (showPlaceholders) {
-      ctx.save();
-      ctx.setLineDash([6, 5]);
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(item.x + 0.5, item.y + 0.5, item.width - 1, item.height - 1);
-      ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
-      ctx.font = '12px Inter, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(item.label, item.x + item.width / 2, item.y + item.height / 2, item.width - 12);
-      if (ticket) {
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
-        ctx.font = '10px Inter, system-ui, sans-serif';
-        ctx.fillText(
-          t(`status.${ticket.status}` as const),
-          item.x + item.width / 2,
-          item.y + item.height / 2 + 16,
-          item.width - 12,
-        );
-      }
-      ctx.restore();
-    }
-  }
 }
 
 export function SceneView({
@@ -131,13 +87,7 @@ export function SceneView({
     if (!activeScene) return;
     setExporting(true);
     try {
-      const canvas = document.createElement('canvas');
-      canvas.width = activeScene.canvas.width;
-      canvas.height = activeScene.canvas.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas unavailable');
-      await drawScene(ctx, activeScene, ticketById, false);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+      const blob = await renderSceneBlob(activeScene, tickets);
       if (!blob) throw new Error(t('toast.sceneExportFailed'));
       downloadBlob(blob, `${slugify(project?.name ?? 'project')}-${slugify(activeScene.name)}-scene.png`);
       notify(t('toast.sceneExported'), 'success');
