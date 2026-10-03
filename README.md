@@ -73,9 +73,26 @@ The goal is to support a workflow where:
 - AI-generated ticket templates
 - Asset history and review annotations
 
+## AI bridge (AI plans, humans make)
+
+The full loop from the [vision](docs/VISION.md) runs through an optional local bridge:
+
+1. A creative director describes an idea and the AI presents a concept. The director approves it or declines it with feedback.
+2. The AI turns the approved concept into ticket requests, which arrive in the studio automatically.
+3. Artists paint and deliver. They can ask questions in ticket notes, and the AI answers there.
+4. The AI is told when everything is delivered and presents the result. The director accepts it (scene done) or sends specific assets back for rework.
+
+```bash
+npm run bridge   # AI bridge + MCP endpoint on http://127.0.0.1:4317
+npm run dev      # studio — open the Director tab
+claude mcp add --transport http creative-collab http://127.0.0.1:4317/mcp
+```
+
+See [docs/AI_BRIDGE.md](docs/AI_BRIDGE.md) for setup, the MCP tool reference and the lifecycle.
+
 ## Repository structure
 
-The app is a fully client-side workspace with no backend. Projects and tickets are persisted in IndexedDB.
+The studio is a fully client-side workspace. Projects and tickets are persisted in IndexedDB. The optional AI bridge (`server/`) is a small local Node server the studio syncs with.
 
 - `src/App.tsx` — app shell, routing between workspace and asset library
 - `src/types.ts` — domain types (projects, tickets, layers, notes, settings)
@@ -86,6 +103,10 @@ The app is a fully client-side workspace with no backend. Projects and tickets a
 - `src/components/` — queue, editor, toolbar, layers, notes, dialogs, asset library
 - `src/data/seed.ts` — first-run example project and tickets
 - `src/styles.css` — dark/light theming and layout
+- `src/bridge/` — AI bridge protocol types, client, sync planning and the `useBridge` hook
+- `src/components/DirectorView.tsx` — director approvals (ideas, concepts, result reviews)
+- `server/` — AI bridge: store (gates, events, persistence), HTTP API and MCP tools
+- `docs/` — vision, workflow diagram and AI bridge reference
 
 ## Capabilities
 
@@ -122,10 +143,12 @@ npm run dev
 
 ```bash
 npm run dev
+npm run bridge
 npm run build
 npm run preview
 npm test
 npm run lint
+npm run typecheck
 ```
 
 ## Roadmap

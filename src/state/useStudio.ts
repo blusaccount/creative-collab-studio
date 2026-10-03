@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BackgroundKind,
+  Note,
   Project,
   Scene,
   SceneBlueprint,
@@ -139,7 +140,10 @@ export function useStudio() {
       blueprint: SceneBlueprint,
       projectId?: string,
       decorate?: (ticket: Ticket, index: number) => Partial<Ticket>,
-    ) => {
+      options?: { select?: boolean },
+    ): Promise<{ scene: Scene; tickets: Ticket[] } | null> => {
+      // Background imports (from the AI bridge) must not pull the artist away from their canvas.
+      const select = options?.select ?? true;
       const targetProject = projectId ?? activeProject?.id;
       if (!targetProject) return null;
       const baseOrder =
@@ -203,11 +207,13 @@ export function useStudio() {
           merged.forEach((ticket) => map.set(ticket.id, ticket));
           return [...map.values()];
         });
-        setActiveSceneId(updatedScene.id);
-        updateSettings({ lastSceneId: updatedScene.id });
+        if (select) {
+          setActiveSceneId(updatedScene.id);
+          updateSettings({ lastSceneId: updatedScene.id });
+        }
         await persistScene(updatedScene);
         await persistTickets(merged);
-        return updatedScene;
+        return { scene: updatedScene, tickets: merged };
       }
 
       const generated = decorate
@@ -215,15 +221,17 @@ export function useStudio() {
         : built.tickets;
       setScenes((current) => [...current, scene]);
       setTickets((current) => [...current, ...generated]);
-      setActiveSceneId(scene.id);
-      updateSettings({ lastSceneId: scene.id });
-      if (generated[0]) {
-        setActiveTicketId(generated[0].id);
-        updateSettings({ lastTicketId: generated[0].id });
+      if (select) {
+        setActiveSceneId(scene.id);
+        updateSettings({ lastSceneId: scene.id });
+        if (generated[0]) {
+          setActiveTicketId(generated[0].id);
+          updateSettings({ lastTicketId: generated[0].id });
+        }
       }
       await persistScene(scene);
       await persistTickets(generated);
-      return scene;
+      return { scene, tickets: generated };
     },
     [activeProject, tickets, scenes, updateSettings],
   );
@@ -472,6 +480,16 @@ export function useStudio() {
     [tickets, updateTicket],
   );
 
+  /** Appends a note with an explicit id/author (AI replies, director rework requests), optionally patching the ticket. */
+  const addTicketNote = useCallback(
+    async (ticketId: string, note: Note, patch?: Partial<Ticket>) => {
+      const ticket = tickets.find((item) => item.id === ticketId);
+      if (!ticket || ticket.notes.some((existing) => existing.id === note.id)) return;
+      await updateTicket(ticketId, { ...patch, notes: [...ticket.notes, note] });
+    },
+    [tickets, updateTicket],
+  );
+
   const addRecentColor = useCallback(
     (color: string) => {
       const current = settingsRef.current;
@@ -522,6 +540,7 @@ export function useStudio() {
     deleteTicket,
     reorderTickets,
     addNote,
+    addTicketNote,
     updateSettings,
     addRecentColor,
     importBlueprint,

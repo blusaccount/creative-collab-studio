@@ -7,3 +7,6 @@ dist
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# AI bridge data (concepts, productions, delivered artwork)
+.studio-bridge/
