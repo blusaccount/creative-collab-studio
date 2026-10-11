@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "bridge",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "bridge"],
+      "port": 4317,
+      "autoPort": false
+    }
+  ]
+}
